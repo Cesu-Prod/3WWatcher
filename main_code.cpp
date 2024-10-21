@@ -1,5 +1,10 @@
 #include <Arduino.h>
 #include <stdlib.h>
+#include <SoftwareSerial.h>
+#include <TinyGPS.h>
+#include "RTClib.h"
+ 
+RTC_DS1307 RTC;
 
 int lat;
 int lon;
@@ -14,7 +19,12 @@ int bouton_rouge_start = 0;
 int bouton_vert_start = 0;
 bool config = false;
 
+SoftwareSerial gpsSerial(rxPin, txPin);
+
 void setup {
+    Serial.begin(9600);
+    gps_serial.begin(9600);
+    RTC.begin()
     pinMode(pin_bouton_rouge, INPUT_PULLUP);
     pinMode(pin_bouton_vert, INPUT_PULLUP);
 }
@@ -99,7 +109,7 @@ typedef struct RTCData {
 } RTCData;
 
 typedef struct configurator {
-    int value(numero_parametre, valeur);
+    int value(int numero_parametre, int valeur);
     void load();
     void reset();
     void version();
@@ -118,9 +128,101 @@ capteur_hum::Initialiser_liste();
 capteur_lum::Initialiser_liste();
 configure::load();
 
-void ColorerLED(couleur1, couleur2, is_second_longer) {
+void ColorerLED(int couleur1[3], int couleur2[3], bool is_second_longer) {
     while (true) {
-        
-        delay(1000)
+        led.setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
+        delay(1000);
+        led.setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
+        if (is_second_longer == true) {
+            delay(2000);
+        } else {
+            delay(1000);
+        }
+    }
+}
+
+void toggleLED() {
+    if (errorcode > 0) {
+        switch (errorcode) {
+            case 1:
+                ColorerLED({255, 0, 0}, {0, 0, 255}, false);
+            case 2:
+                ColorerLED({255, 0, 0}, {255, 125, 0}, false);
+            case 3:
+                ColorerLED({255, 0, 0}, {0, 255, 0}, false);
+            case 4:
+                ColorerLED({255,  0, 0}, {0, 255, 0}, true);
+            case 5:
+                ColorerLED({255, 0, 0}, {255, 255, 255}, false);
+            case 6:
+                ColorerLED({255, 0, 0}, {255, 255, 255}, true);
+        }
+    } else {
+        if (mode == true) {
+            led.setColorRGB(0, 255, 0);
+        } else {
+            led.setColorRGB(0, 0, 255);
+        }
+    }
+}
+
+void mesures(bool gps_active) {
+    int mesure_actuelle = 0;
+    if (gps_active) {
+        while (gpsSerial.available() > 0) {
+            char valeur_gps = gpsSerial.read();
+            if (tinyGPS.encode(valeur_gps)) {
+                lat = tinyGPS.getLatitude();
+                lon = tinyGPS.getLongitude();
+            }
+        }
+    }
+
+    mesure_actuelle = 1;
+
+    DateTime now = RTC.now();
+    valeurs_rtc->secondes = now.second();
+    valeurs_rtc->minutes = now.minute();
+    valeurs_rtc->heures = now.hour();
+    valeurs_rtc->jours = now.day();
+    valeurs_rtc->mois = now.month();
+    valeurs_rtc->annee = now.year();
+
+    mesure_actuelle = 2;
+
+    capteur_lum->Mettre_a_jour(pinRead(luminosite));
+
+    mesure_actuelle = 3;
+
+    temperature = bme.Temperature();
+    if (temperature >= capteur_temp->min && temperature <= capteur_temp->max) {
+        capteur_temp->Mettre_a_jour(temperature);
+    } else {
+        errorcode = 4;
+        while (true) {
+            // NE RIEN FAIRE INDEFINIMENT
+        }
+    }
+
+    mesure_actuelle = 4;
+
+    pression = bme.Pression();
+    pression = pression / 100;
+    if (pression >= capteur_press->min && pression <= capteur_press->max) {
+        capteur_press->Mettre_a_jour(pression);
+    } else {
+        errorcode = 4;
+        while (true) {
+            // NE RIEN FAIRE INDEFINIMENT
+        }
+    }
+
+    mesure_actuelle = 5;
+
+    humidite = bme.Humidite();
+    if (humidite >= capteur_hum->min && humidite <= capteur_hum->max) {
+        capteur_hum->Mettre_a_jour(humidite);
+    } else {
+        capteur_hum->Mettre_a_jour(NULL);
     }
 }
