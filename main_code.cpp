@@ -1,11 +1,22 @@
+// Includes
 #include <Arduino.h>
 #include <stdlib.h>
 #include <SoftwareSerial.h>
 #include <TinyGPS.h>
-#include "RTClib.h"
- 
-RTC_DS1307 RTC;
+#include <RTClib.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 
+// Déclaration des modules
+RTC_DS1307 RTC;
+Adafruit_BME280 BME;
+
+// Déclaration du second port série émulé
+SoftwareSerial gpsSerial(rxPin, txPin); pins a declarer
+
+// Déclaration des variables globales
 int lat;
 int lon;
 int rtc_error;
@@ -19,15 +30,19 @@ int bouton_rouge_start = 0;
 int bouton_vert_start = 0;
 bool config = false;
 
-SoftwareSerial gpsSerial(rxPin, txPin);
-
+// Initialisation
 void setup {
     Serial.begin(9600);
     gps_serial.begin(9600);
-    RTC.begin()
+    RTC.begin();
+    BME.begin();
     pinMode(pin_bouton_rouge, INPUT_PULLUP);
     pinMode(pin_bouton_vert, INPUT_PULLUP);
 }
+
+  ////////////////
+ // Structures //
+////////////////
 
 typedef struct Capteur {
     int min;
@@ -49,7 +64,7 @@ void Capteur::Initialiser_liste() {
     int i;
     chainon *noeud_initial = new chainon();
     noeud_initial->valeur = 0;
-    noeud_initial->suite = NULL;
+    noeud_initial->suite = nullptr;
     tete_liste = noeud_initial;
     for (i = 1 ; i >= 9 ; i++) {
         chainon *noeud = new chainon;
@@ -66,11 +81,11 @@ void Capteur::Mettre_a_jour(int valeur) {
     noeud->suite = tete_liste;
     tete_liste = noeud;
     courant = tete_liste;
-    while (courant->suite->suite != NULL) {
+    while (courant->suite->suite != nullptr) {
         courant = courant->suite;
     }
     free(courant->suite);
-    courant->suite = NULL;
+    courant->suite = nullptr;
     free(courant);
 }
 
@@ -81,7 +96,7 @@ int Capteur::Moyenne() {
     nombre = 0;
     total = 0;
     courant = tete_liste;
-    while (courant->suite != NULL) {
+    while (courant->suite != nullptr) {
         if (courant->valeur != 0) {
             total = total + courant->valeur;
             nombre = nombre + 1;
@@ -100,7 +115,6 @@ int Capteur::Moyenne() {
 }
 
 typedef struct RTCData {
-    int secondes;
     int minutes;
     int heures;
     int jours;
@@ -128,12 +142,16 @@ capteur_hum::Initialiser_liste();
 capteur_lum::Initialiser_liste();
 configure::load();
 
+  ///////////////
+ // Fonctions //
+///////////////
+
 void ColorerLED(int couleur1[3], int couleur2[3], bool is_second_longer) {
     while (true) {
         led.setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
         delay(1000);
         led.setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
-        if (is_second_longer == true) {
+        if (is_second_longer) {
             delay(2000);
         } else {
             delay(1000);
@@ -158,7 +176,7 @@ void toggleLED() {
                 ColorerLED({255, 0, 0}, {255, 255, 255}, true);
         }
     } else {
-        if (mode == true) {
+        if (mode) {
             led.setColorRGB(0, 255, 0);
         } else {
             led.setColorRGB(0, 0, 255);
@@ -181,7 +199,6 @@ void mesures(bool gps_active) {
     mesure_actuelle = 1;
 
     DateTime now = RTC.now();
-    valeurs_rtc->secondes = now.second();
     valeurs_rtc->minutes = now.minute();
     valeurs_rtc->heures = now.hour();
     valeurs_rtc->jours = now.day();
@@ -194,7 +211,7 @@ void mesures(bool gps_active) {
 
     mesure_actuelle = 3;
 
-    temperature = bme.Temperature();
+    temperature = BME.readTemperature()
     if (temperature >= capteur_temp->min && temperature <= capteur_temp->max) {
         capteur_temp->Mettre_a_jour(temperature);
     } else {
@@ -206,8 +223,7 @@ void mesures(bool gps_active) {
 
     mesure_actuelle = 4;
 
-    pression = bme.Pression();
-    pression = pression / 100;
+    pression = BME.readPressure() / 100;
     if (pression >= capteur_press->min && pression <= capteur_press->max) {
         capteur_press->Mettre_a_jour(pression);
     } else {
@@ -219,10 +235,84 @@ void mesures(bool gps_active) {
 
     mesure_actuelle = 5;
 
-    humidite = bme.Humidite();
+    humidite = BME.readHumidity();
     if (humidite >= capteur_hum->min && humidite <= capteur_hum->max) {
         capteur_hum->Mettre_a_jour(humidite);
     } else {
         capteur_hum->Mettre_a_jour(NULL);
     }
+
+    compteur_de_secondes = compteur_de_secondes + 2;
+    if (compteur_de_secondes >= temp_max) {
+        if (errorcode > 0) {
+            toggleLED();
+        }
+        switch (mesure_actuelle) {
+            case 0:
+                lat = NULL;
+                lon = NULL;
+                if (gps_error == 1) {
+                    errorcode = 1;
+                    toggleLED();
+                } else {
+                    gps_error = 1;
+                }
+            case 1:
+                valeurs_rtc->minutes = NULL;
+                valeurs_rtc->heures = NULL;
+                valeurs_rtc->jours = NULL;
+                valeurs_rtc->mois = NULL;
+                valeurs_rtc->annees = NULL;
+                if (rtc_error == 1) {
+                    errorcode = 2;
+                    toggleLED();
+                } else {
+                    rtc_error = 1;
+                }
+            case 2:
+                if (capteur_lum->errors == 1;) {
+                    errorcode = 3;
+                    toggleLED();
+                } else {
+                    capteur_lum->errors = 1;
+                }
+            case 3:
+                if (capteur_temp->errors == 1;) {
+                    errorcode = 3;
+                    toggleLED();
+                } else {
+                    capteur_temp->errors = 1;
+                }
+            case 4:
+                if (capteur_press->errors == 1;) {
+                    errorcode = 3;
+                    toggleLED();
+                } else {
+                    capteur_press->errors = 1;
+                }
+            case 5:
+                if (capteur_hum->errors == 1;) {
+                    errorcode = 3;
+                    toggleLED();
+                } else {
+                    capteur_hum->errors = 1;
+                }
+        }
+    }
 }
+
+/*
+void save_to_sd() {
+    if (!SD.exists("fichier_log")) {
+        DateTime now = RTC.now();
+        String fileName = String(now.year()) + "_" + String(now.month()) + "_" + String(now.day()) + "_0.LOG";
+        SD.open(fileName, FILE_WRITE);
+        dataFile.close();
+    }
+    if (File.size("fichier_log") >= FILE_MAX_SIZE) {
+        int revision = ObtenirRevision() + 1;
+        String newFileName = "fichier_log_rev" + String(revision);
+        CopierFichier("fichier_log", newFileName);
+        ReinitialiserFichier("fichier_log");
+    }
+}*/
