@@ -1,4 +1,3 @@
-
 /* 
  * Example of using the ChainableRGB library for controlling a Grove RGB.
  * This code cycles through all the colors in an uniform way. This is accomplished using a HSB color space. 
@@ -7,9 +6,12 @@
  */
 
 
-#include <ChainableLED.h>
+#include "ChainableLED.h"
 //Defines the num of LEDs used, The undefined 
 //will be lost control.
+
+extern "C" void __attribute__((weak)) yield(void) {}
+
 #define NUM_LEDS  5
 
 ChainableLED leds(7, 8, NUM_LEDS);//defines the pin used on arduino.
@@ -39,4 +41,3 @@ void loop()
   else if (hue<=0.0 && !up)
     up = true;
 }
-
