@@ -1,12 +1,8 @@
 #include <Adafruit_BME280.h>
-
 Adafruit_BME280 bme;
-status = bme.begin(0x76);
-bme.setSampling(Adafruit_BME280::MODE_SLEEP);
 
 mesure_actuelle = 3
 
-bme.setSampling(Adafruit_BME280::MODE_FORCED);
 int humiditee = bme.readHumidity();
 if (humiditee < capteur_hum.min && humiditee > capteur_hum.max) {
     capteur_hum.Mettre_à_jour(humiditee)
