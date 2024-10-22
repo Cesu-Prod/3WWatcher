@@ -7,10 +7,13 @@
  */
 
 
-#include <ChainableLED.h>
+#include "ChainableLED.h"
 //Defines the num of LEDs used, The undefined 
 //will be lost control.
 #define NUM_LEDS  5
+
+
+extern "C" void __attribute__((weak)) yield(void) {}
 
 ChainableLED leds(7, 8, NUM_LEDS);//defines the pin used on arduino.
 
