@@ -16,7 +16,7 @@ struct Sensor {
     void Init_list();
     void Update(int value);
     int Average();
-};Sensor;
+} Sensor;
 
 void Sensor::Init_list() {
     int i;
