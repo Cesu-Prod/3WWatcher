@@ -1,0 +1,5 @@
+
+LED/.tmp/abi.o
+*.o
+*.touched
+*.log
