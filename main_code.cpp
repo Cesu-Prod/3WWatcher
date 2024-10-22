@@ -1,7 +1,7 @@
 // Includes
 #include <Arduino.h>
 #include <stdlib.h>
-#include <SoftwareSerial.h>
+#include "SoftwareSerial.h"
 #include <TinyGPS.h>
 #include <RTClib.h>
 #include <Wire.h>
@@ -241,78 +241,4 @@ void mesures(bool gps_active) {
     } else {
         capteur_hum->Mettre_a_jour(NULL);
     }
-
-    compteur_de_secondes = compteur_de_secondes + 2;
-    if (compteur_de_secondes >= temp_max) {
-        if (errorcode > 0) {
-            toggleLED();
-        }
-        switch (mesure_actuelle) {
-            case 0:
-                lat = NULL;
-                lon = NULL;
-                if (gps_error == 1) {
-                    errorcode = 1;
-                    toggleLED();
-                } else {
-                    gps_error = 1;
-                }
-            case 1:
-                valeurs_rtc->minutes = NULL;
-                valeurs_rtc->heures = NULL;
-                valeurs_rtc->jours = NULL;
-                valeurs_rtc->mois = NULL;
-                valeurs_rtc->annees = NULL;
-                if (rtc_error == 1) {
-                    errorcode = 2;
-                    toggleLED();
-                } else {
-                    rtc_error = 1;
-                }
-            case 2:
-                if (capteur_lum->errors == 1;) {
-                    errorcode = 3;
-                    toggleLED();
-                } else {
-                    capteur_lum->errors = 1;
-                }
-            case 3:
-                if (capteur_temp->errors == 1;) {
-                    errorcode = 3;
-                    toggleLED();
-                } else {
-                    capteur_temp->errors = 1;
-                }
-            case 4:
-                if (capteur_press->errors == 1;) {
-                    errorcode = 3;
-                    toggleLED();
-                } else {
-                    capteur_press->errors = 1;
-                }
-            case 5:
-                if (capteur_hum->errors == 1;) {
-                    errorcode = 3;
-                    toggleLED();
-                } else {
-                    capteur_hum->errors = 1;
-                }
-        }
-    }
 }
-
-/*
-void save_to_sd() {
-    if (!SD.exists("fichier_log")) {
-        DateTime now = RTC.now();
-        String fileName = String(now.year()) + "_" + String(now.month()) + "_" + String(now.day()) + "_0.LOG";
-        SD.open(fileName, FILE_WRITE);
-        dataFile.close();
-    }
-    if (File.size("fichier_log") >= FILE_MAX_SIZE) {
-        int revision = ObtenirRevision() + 1;
-        String newFileName = "fichier_log_rev" + String(revision);
-        CopierFichier("fichier_log", newFileName);
-        ReinitialiserFichier("fichier_log");
-    }
-}*/
