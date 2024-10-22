@@ -10,12 +10,10 @@
 #include "ChainableLED.h"
 //Defines the num of LEDs used, The undefined 
 //will be lost control.
-#define NUM_LEDS  5
-
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
-ChainableLED leds(7, 8, NUM_LEDS);//defines the pin used on arduino.
+ChainableLED leds(0, 7, 8);//defines the pin used on arduino.
 
 void setup()
 {
@@ -27,19 +25,13 @@ boolean up = true;
 
 void loop()
 {
-  for (byte i=0; i<NUM_LEDS; i++)
-    leds.setColorHSB(i, hue, 1.0, 0.5);
+
+  leds.setColorRGB(0, 255, 50, 0);
     
-  delay(50);
+  delay(100);
     
-  if (up)
-    hue+= 0.025;
-  else
-    hue-= 0.025;
-    
-  if (hue>=1.0 && up)
-    up = false;
-  else if (hue<=0.0 && !up)
-    up = true;
+  leds.setColorRGB(0, 0, 0, 0);
+
+  delay(100);
 }
 
