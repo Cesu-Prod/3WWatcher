@@ -66,8 +66,6 @@ void setColorRGB(byte red, byte green, byte blue) {
     _current_red = red;
     _current_green = green;
     _current_blue = blue;
-    
-    // Send data frame prefix
     for (byte i = 0; i < 4; i++) {
         sendByte(0x00);
     }
@@ -75,13 +73,14 @@ void setColorRGB(byte red, byte green, byte blue) {
     sendColor(red, green, blue);
 }
 
+
 void setup() {
     Init_LED(7, 8);
 }
 
 void loop() {
-    setColorRGB(0, 20, 255);  // White
+    setColorRGB(0, 20, 255); // BLUE
     delay(500);
-    setColorRGB(255, 20, 0);     // Red-Orange
+    setColorRGB(255, 20, 0);     // RED
     delay(500);
 }
