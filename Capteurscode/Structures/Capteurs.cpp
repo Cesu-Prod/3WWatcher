@@ -11,6 +11,7 @@ typedef struct Sensor {
     int min;
     int max;
     int errors;
+    bool active;
     Node *head_list;
     
     void Init_list();
@@ -65,7 +66,7 @@ int Sensor::Average() {
     }
 }
 
-static Sensor ssr_lit;
+static Sensor ssr_lum;
 static Sensor ssr_hum;
 static Sensor ssr_tmp;
 static Sensor ssr_prs;
@@ -76,24 +77,24 @@ static Sensor ssr_prs;
 // Example of use.
 
 void setup() {
-    ssr_lit.Init_list();
+    ssr_lum.Init_list();
     ssr_hum.Init_list();
     ssr_tmp.Init_list();
     ssr_prs.Init_list();
 }
 
 void loop() {
-    static int lit = 0;
+    static int lum = 0;
     static int hum = 0;
     static int tmp = 0;
     static int prs = 0;
 
-    lit = random(0, 100);
+    lum = random(0, 100);
     hum = random(0, 100);
     tmp = random(0, 100);
     prs = random(0, 100);
 
-    ssr_lit.Update(lit);
+    ssr_lum.Update(lum);
     ssr_hum.Update(hum);
     ssr_tmp.Update(tmp);
     ssr_prs.Update(prs);
