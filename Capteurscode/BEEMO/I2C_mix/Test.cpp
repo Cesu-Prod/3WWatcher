@@ -4,15 +4,15 @@
 extern "C" void __attribute__((weak)) yield(void) {}
 
 // Define the SDA and SCL pins
-const int SDA_PIN = 21; // Change these pin numbers according to your setup
-const int SCL_PIN = 22;
+const int SDA_PIN = A4; // Change these pin numbers according to your setup
+const int SCL_PIN = A3;
 
 // Create BME280 instance
 BME280_Simple bme(SDA_PIN, SCL_PIN);
 
 void setup() {
     // Initialize serial communication
-    Serial.begin(115200);
+    Serial.begin(9600);
     Serial.println("BME280 Simple Test");
     
     // Initialize the sensor

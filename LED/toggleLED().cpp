@@ -90,8 +90,8 @@ void ColorerLED(int couleur1[3], int couleur2[3], bool is_second_longer) {
 
 void toggleLED() {
     if (err_code > 0) {
-        unsigned char color1[3] = {255, 0, 0};
-        unsigned char color2[3];
+        unsigned int color1[3] = {255, 0, 0};
+        unsigned int color2[3];
         bool is_second_longer;
 
         switch (err_code) {
@@ -148,20 +148,20 @@ void setup() {
 
 void loop() {
     err_code = 1;
-    toggleLED()
+    toggleLED();
 
     err_code = 2;
-    toggleLED()
+    toggleLED();
 
     err_code = 3;
-    toggleLED()
+    toggleLED();
 
     err_code = 4;
-    toggleLED()
+    toggleLED();
 
     err_code = 5;
-    toggleLED()
+    toggleLED();
 
     err_code = 6;
-    toggleLED()
+    toggleLED();
 }
