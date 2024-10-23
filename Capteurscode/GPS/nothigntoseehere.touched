@@ -1,0 +1,77 @@
+#include <SoftwareSerial.h>
+
+// Objet SoftwareSerial pour la communication GPS
+SoftwareSerial GPS_Serial(2, 3); // Broches RX et TX
+// Buffer pour stocker les données GPS entrantes
+unsigned char buffer[64]; // Buffer de 64 octets
+// Compteur pour les données GPS entrantes
+int count = 0;
+
+void extract_gps(char* msg) {
+    // Tokenisation de la chaîne de caractères en fonction du séparateur ","
+    char* token = strtok(msg, ",");
+    int field_i = 0;
+    // Tableaux pour stocker les valeurs de latitude, longitude, NS et EW
+    char lat[15], NS[2], lon[15], EW[2];
+
+    // Boucle pour parcourir les champs du message GPS au format $GPGGA
+
+    while (token != NULL) {
+        // Traitement des champs en fonction de leur position
+        switch (field_i) {
+            case 2: // Latitude
+                // Copie de la valeur de latitude
+                strcpy(lat, token);
+                break;
+            case 3: // NS
+                // Copie de la valeur de NS
+                strcpy(NS, token);
+                break;
+            case 4: // Longitude
+                // Copie de la valeur de longitude
+                strcpy(lon, token);
+                break;
+            case 5: // EW
+                // Copie de la valeur de EW
+                strcpy(EW, token);
+                break;
+        }
+        // Passage au champ suivant
+        token = strtok(NULL, ",");
+        field_i++;
+    }
+}
+
+void clear_buffer() {
+    // Réinitialisation du buffer pour effacer les données GPS précédentes
+    for (int i = 0; i < count; i++) {
+        // Remplacement des données par NULL pour libérer la mémoire
+        buffer[i] = NULL;
+    }
+}
+
+void setup() {
+    // Initialisation de la communication série à 9600 bauds
+    Serial.begin(9600);
+    // Initialisation de la communication série GPS à 9600 bauds
+    GPS_Serial.begin(9600);
+}
+
+void loop() {
+    // Vérification de la disponibilité de données GPS
+    if (GPS_Serial.available()) {
+        // Lecture des données GPS disponibles
+        while(GPS_Serial.available() && count < 64) {
+            // Stockage des données GPS dans le buffer
+            buffer[count++] = GPS_Serial.read();
+        }
+        // Marque de fin de chaîne pour les données GPS
+        buffer[count] = '\0';
+        // Extraction des informations GPS du buffer
+        extract_gps(buffer);
+    }
+    // Réinitialisation du buffer pour effacer les données GPS précédentes
+    clear_buffer();
+    // Réinitialisation du compteur pour les données GPS
+    count = 0;
+}
