@@ -29,7 +29,7 @@ void loop() {
         } else if (digitalRead(pin_bouton_rouge) == HIGH) {
             if (temps_actuel - bouton_rouge_start > 5000) { // Si plus de 5000 ms passées
                 bouton_rouge_start = 0;
-                ToggleMode(0); // Appel de ToggleMode
+                ToggleMode(false); // Appel de ToggleMode
             }
         }
 
@@ -39,7 +39,7 @@ void loop() {
         } else if (digitalRead(pin_bouton_vert) == HIGH) {
             if (temps_actuel - bouton_vert_start > 5000) { // Si plus de 5000 ms passées
                 bouton_vert_start = 0;
-                ToggleMode(1); // Appel de ToggleMode
+                ToggleMode(true); // Appel de ToggleMode
             }
         }
     }
