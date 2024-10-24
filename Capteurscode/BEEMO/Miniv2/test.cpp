@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "BME280_Mini.h"
 
-extern "C" void __attribute__((weak)) yield(void) {}
+extern "C" void __attribute__((weak)) yield(void) {} // Spécifique au compil, peux être retiré.
 
 // Définir les pins I2C
 const uint8_t SDA_PIN = A4; // Pin SDA pour Arduino UNO
