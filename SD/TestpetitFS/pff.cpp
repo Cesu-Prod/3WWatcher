@@ -551,7 +551,6 @@ FRESULT dir_find (
 
 	res = dir_rewind(dj);			/* Rewind directory object */
 	if (res != FR_OK) return res;
-
 	do {
 		res = disk_readp(dir, dj->sect, (dj->index % 16) * 32, 32)	/* Read an entry */
 			? FR_DISK_ERR : FR_OK;

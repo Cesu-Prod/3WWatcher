@@ -5,10 +5,6 @@
 #ifndef _DISKIO_DEFINED
 #define _DISKIO_DEFINED
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "integer.h"
 
 
@@ -41,10 +37,5 @@ DRESULT disk_writep (const BYTE* buff, DWORD sc);
 #define CT_SD2				0x04	/* SD ver 2 */
 #define CT_SDC				(CT_SD1|CT_SD2)	/* SD */
 #define CT_BLOCK			0x08	/* Block addressing */
-
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif	/* _DISKIO_DEFINED */
