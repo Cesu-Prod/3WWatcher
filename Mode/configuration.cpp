@@ -6,10 +6,10 @@ const unsigned short int param_num = 15;
 // Définition de la structure Param
 typedef struct Param {
     unsigned short int addr;      // Adresse de stockage
-    short int def_val;   // Valeur par défaut
-    short int min;       // Valeur minimale
+    short int def_val;            // Valeur par défaut
+    short int min;                // Valeur minimale
     unsigned short int max;       // Valeur maximale
-    short int val;       // Valeur actuelle
+    short int val;                // Valeur actuelle
 } Param;
 
 // Définir les paramètres
@@ -31,13 +31,13 @@ Param params[] = {
     {46, 1080, 300, 1100, 1080}, // PRESSURE_MAX ; 14
 };
 
-// Définition de la structure Configuration
-typedef struct Configuration {
+// Définition de la structure Setting
+typedef struct Setting {
     // Pointeur vers le tableau de paramètres
     Param *param = params;
 
-    // Constructeur de la structure Configuration
-    Configuration() {
+    // Constructeur de la structure Setting
+    Setting() {
         // Chargement des paramètres par défaut
         load();
     }
@@ -56,9 +56,9 @@ typedef struct Configuration {
     void reset();
     // Fonction pour afficher la version
     void version();
-} Configuration;
+} Setting;
 
-void Configuration::load() {
+void Setting::load() {
     // Vérifie si aucune configuration n'a été chargée
     if (EEPROM.read(2) == 0) {
         // Chargement des paramètres par défaut
@@ -79,7 +79,7 @@ void Configuration::load() {
     }
 }
 
-void Configuration::value(unsigned short int num, short int val_par) {
+void Setting::value(unsigned short int num, short int val_par) {
     // Vérifie si le numéro de paramètre est valide
     if (num >= 0 && num < param_num) {
         // Vérifie si la valeur est dans la plage autorisée ou si c'est un paramètre spécial
@@ -104,7 +104,7 @@ void Configuration::value(unsigned short int num, short int val_par) {
     }
 }
 
-void Configuration::clock(unsigned short int hour, unsigned short int min, unsigned short int sec) {
+void Setting::clock(unsigned short int hour, unsigned short int min, unsigned short int sec) {
     // Vérifie si l'heure, la minute et la seconde sont dans la plage autorisée
     if (hour >= 0 && hour < 24 && min >= 0 && min < 60 && sec >= 0 && sec < 60) {
         // Enregistre l'heure, la minute et la seconde dans l'EEPROM
@@ -124,7 +124,7 @@ void Configuration::clock(unsigned short int hour, unsigned short int min, unsig
     }
 }
 
-void Configuration::date(unsigned short int month, unsigned short int day, unsigned short int year) {
+void Setting::date(unsigned short int month, unsigned short int day, unsigned short int year) {
     // Vérifie si le mois, le jour et l'année sont dans la plage autorisée
     int max_days;
     if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
@@ -156,7 +156,7 @@ void Configuration::date(unsigned short int month, unsigned short int day, unsig
     }
 }
 
-void Configuration::day(String week_day) {
+void Setting::day(String week_day) {
     // Vérifie si le jour de la semaine est valide
     if (week_day == "MON" || week_day == "TUE" || week_day == "WED" || week_day == "THU" || week_day == "FRI" || week_day == "SAT" || week_day == "SUN") {
         // Enregistre le jour de la semaine dans l'EEPROM
@@ -170,7 +170,7 @@ void Configuration::day(String week_day) {
     }
 }
 
-void Configuration::reset() {
+void Setting::reset() {
     // Réinitialise les paramètres à leurs valeurs par défaut
     for (unsigned short int i = 0; i < param_num; i++) {
         // Écriture de la valeur par défaut dans l'EEPROM
@@ -180,7 +180,7 @@ void Configuration::reset() {
     }
 }
 
-void Configuration::version() {
+void Setting::version() {
     // Fonction pour afficher la version et le numéro de lot
     unsigned short int version;
     unsigned short int lot_num;
@@ -196,11 +196,11 @@ void Configuration::version() {
     Serial.println(lot_num);
 }
 
-// Création d'une instance de la classe Configuration
-Configuration *configure = new Configuration();
+// Création d'une instance de la classe Setting
+Setting *configure = new Setting();
 
 // Fonction pour traiter une commande
-void processCommand(String fct) {
+void Configuration(String fct) {
     // Vérifie si la commande est pour définir une valeur
     if (fct.startsWith("set ")) {
         // Commande pour définir une valeur
@@ -248,8 +248,6 @@ void processCommand(String fct) {
 void setup() {
     // Initialisation de la communication série
     Serial.begin(9600);
-    // Affichage du message de configuration
-    Serial.println("Configuration :");
 }
 
 void loop() {
@@ -257,10 +255,11 @@ void loop() {
     EEPROM.put(0, "0.8");
     EEPROM.put(2, 2);
     // Vérification de la disponibilité de données en entrée série
+    Serial.println("Configuration :");
     if (Serial.available() > 0) {
         // Lecture de la commande en entrée série
         String fct = Serial.readStringUntil('\n');
         // Traitement de la commande
-        processCommand(fct);
+        Configuration(fct);
     }
 }

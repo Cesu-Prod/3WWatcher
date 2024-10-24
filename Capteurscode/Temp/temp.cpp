@@ -1,9 +1,9 @@
-mesure_actuelle = 5
+act_mes = 5;
 
 bme.setSampling(Adafruit_BME280::MODE_FORCED);
-int temperature = bme.readTemperature();
-if (temperature < capteur_temp.min && temperature > capteur_temp.max) {
-    capteur_temp.Mettre_à_jour(temperature)
-    } else {
-    errorcode = 4
+short int temp = bme.readTemperature();
+if (temp < ssr_tmp.min && temp > ssr_tmp.max) {
+    ssr_tmp.Update(temp);
+} else {
+    err_code = 4;
 }

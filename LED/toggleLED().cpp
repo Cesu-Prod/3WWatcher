@@ -77,7 +77,7 @@ void setColorRGB(byte red, byte green, byte blue) {
     sendColor(red, green, blue);
 }
 
-void ColorerLED(int couleur1[3], int couleur2[3], bool is_second_longer) {
+void ColorerLED(byte couleur1[3], byte couleur2[3], bool is_second_longer) {
     setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
     delay(1000);
     setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
@@ -90,8 +90,8 @@ void ColorerLED(int couleur1[3], int couleur2[3], bool is_second_longer) {
 
 void toggleLED() {
     if (err_code > 0) {
-        unsigned int color1[3] = {255, 0, 0};
-        unsigned int color2[3];
+        unsigned short int color1[3] = {255, 0, 0};
+        unsigned short int color2[3];
         bool is_second_longer;
 
         switch (err_code) {

@@ -3,29 +3,32 @@
 extern "C" void __attribute__((weak)) yield(void) {}
 
 typedef struct Node {
-    int value;
+    short int value;
     Node *next;
 } Node;
 
 typedef struct Sensor {
-    int min;
-    int max;
-    int errors;
+    short int min;
+    unsigned short int max;
+    unsigned short int errors;
     bool active;
     Node *head_list;
     
+    Sensor () {
+        Init_list();
+    }
+
     void Init_list();
-    void Update(int value);
-    int Average();
-}Sensor;
+    void Update(short int value);
+    short int Average();
+} Sensor;
 
 void Sensor::Init_list() {
-    int i;
     Node *initial_node = new Node();
     initial_node->value = 0;
     initial_node->next = nullptr;
     head_list = initial_node;
-    for (i = 1; i <= 3; i++) {
+    for (unsigned short int i = 1; i <= 3; i++) {
         Node *node = new Node;
         node->value = 0;
         node->next = head_list;
@@ -33,7 +36,7 @@ void Sensor::Init_list() {
     }
 }
 
-void Sensor::Update(int value) {
+void Sensor::Update(short int value) {
     Node *current;
     Node *node = new Node();
     node->value = value;
@@ -47,10 +50,10 @@ void Sensor::Update(int value) {
     current->next = nullptr;
 }
 
-int Sensor::Average() {
+short int Sensor::Average() {
     Node *current;
-    int count = 0;
-    int total = 0;
+    unsigned short int count = 0;
+    short int total = 0;
     current = head_list;
     while (current != nullptr) {
         if (current->value != 0) {
@@ -77,10 +80,6 @@ static Sensor ssr_prs;
 // Example of use.
 
 void setup() {
-    ssr_lum.Init_list();
-    ssr_hum.Init_list();
-    ssr_tmp.Init_list();
-    ssr_prs.Init_list();
 }
 
 void loop() {

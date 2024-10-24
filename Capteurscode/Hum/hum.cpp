@@ -1,11 +1,12 @@
 #include <Adafruit_BME280.h>
+
 Adafruit_BME280 bme;
 
-mesure_actuelle = 3
+act_mes = 3;
 
-int humiditee = bme.readHumidity();
-if (humiditee < capteur_hum.min && humiditee > capteur_hum.max) {
-    capteur_hum.Mettre_à_jour(humiditee)
-    } else {
-    capteur_hum.Mettre_à_jour(NULL);
+unsigned short int hum = bme.readHumidity();
+if (hum < ssr_hum.min && hum > ssr_hum.max) {
+    ssr_hum.Update(hum);
+} else {
+    ssr_hum.Update(NULL);
 }

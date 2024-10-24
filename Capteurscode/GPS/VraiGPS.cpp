@@ -10,7 +10,7 @@ float convertNMEAToDecimal(float val) {
 
 void parseGGA(char* trame) {
     char* ptr = strtok(trame, ",");
-    int index = 0;
+    unsigned short int index = 0;
     float latitude = 0.0;
     float longitude = 0.0;
     char lat_dir, lon_dir;
@@ -50,7 +50,7 @@ void parseGGA(char* trame) {
 void printCurrentCoordinates() {
     // Buffer pour stocker la trame NMEA
     static char buffer[100];
-    static int position = 0;
+    static unsigned short int position = 0;
     
     while (Serial.available()) {
         char c = Serial.read();
