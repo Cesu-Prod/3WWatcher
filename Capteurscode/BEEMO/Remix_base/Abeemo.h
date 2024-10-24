@@ -1,5 +1,5 @@
-#ifndef BME280_SIMPLE_H
-#define BME280_SIMPLE_H
+#ifndef Abeemo_H
+#define Abeemo_H
 
 #include <stdint.h>
 
