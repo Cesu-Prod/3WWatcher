@@ -1,4 +1,3 @@
-
 #include <Wire.h>
 #include <I2C_RTC.h>
 
@@ -41,7 +40,8 @@ void setup()
 		hours = RTC.getHours();
 		minutes = RTC.getMinutes(); 
 		seconds = RTC.getSeconds();
-
+    }
+}
 
 void loop()
 {
