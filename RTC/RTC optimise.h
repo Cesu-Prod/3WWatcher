@@ -1,6 +1,8 @@
 #ifndef RTC_H
 #define RTC_H
 
+#include <stdint.h>  // Inclusion pour uint8_t et uint16_t
+
 #define DS1307_ADDR 0x68
 
 class DS1307

@@ -1,5 +1,5 @@
 //RTC
-#include <I2C_RTC.h>
+#include <RTC.h>
 
 static DS1307 RTC;
 
