@@ -14,13 +14,11 @@ void loop() {
     }
     standard(); // Mode standard
 
-
     unsigned long temps_actuel = millis();
 
     if (config) {
         // POUIC
     } else {
-
         // Gestion du bouton rouge
         if (digitalRead(pin_bouton_rouge) == LOW && bouton_rouge_start == 0) {
             bouton_rouge_start = temps_actuel; // Enregistrer le temps de début

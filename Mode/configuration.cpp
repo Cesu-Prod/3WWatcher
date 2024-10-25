@@ -2,6 +2,8 @@
 
 // Nombre de paramètres
 const unsigned short int param_num = 15;
+unsigned short int vers = 0.8;
+unsigned short int lot_num = 2;
 
 // Définition de la structure Param
 typedef struct Param {
@@ -30,12 +32,11 @@ Param params[] = {
     {44, 850, 300, 1100, 850}, // PRESSURE_MIN ; 13
     {46, 1080, 300, 1100, 1080}, // PRESSURE_MAX ; 14
 };
+// Pointeur vers le tableau de paramètres
+Param *param = params;
 
 // Définition de la structure Setting
 typedef struct Setting {
-    // Pointeur vers le tableau de paramètres
-    Param *param = params;
-
     // Constructeur de la structure Setting
     Setting() {
         // Chargement des paramètres par défaut
@@ -63,6 +64,9 @@ void Setting::load() {
     if (EEPROM.read(2) == 0) {
         // Chargement des paramètres par défaut
         for (unsigned short int i = 0; i < param_num; i++) {
+            // Enregistrement de la version et du numéro de lot dans l'EEPROM
+            EEPROM.put(0, vers);
+            EEPROM.put(2, lot_num);
             // Écriture de la valeur par défaut dans l'EEPROM
             EEPROM.put(param[i].addr, param[i].def_val);
             // Mise à jour de la valeur actuelle du paramètre
@@ -181,12 +185,8 @@ void Setting::reset() {
 }
 
 void Setting::version() {
-    // Fonction pour afficher la version et le numéro de lot
-    unsigned short int version;
-    unsigned short int lot_num;
-
     // Lire la version et le numéro de lot depuis l'EEPROM
-    EEPROM.get(0, version);
+    EEPROM.get(0, vers);
     EEPROM.get(2, lot_num);
 
     // Affichage de la version et du numéro de lot
@@ -200,7 +200,7 @@ void Setting::version() {
 Setting *configure = new Setting();
 
 // Fonction pour traiter une commande
-void Configuration(String fct) {
+void Command_set(String fct) {
     // Vérifie si la commande est pour définir une valeur
     if (fct.startsWith("set ")) {
         // Commande pour définir une valeur
@@ -251,15 +251,12 @@ void setup() {
 }
 
 void loop() {
-    // Enregistrement des valeurs par défaut dans l'EEPROM
-    EEPROM.put(0, "0.8");
-    EEPROM.put(2, 2);
     // Vérification de la disponibilité de données en entrée série
     Serial.println("Configuration :");
     if (Serial.available() > 0) {
         // Lecture de la commande en entrée série
         String fct = Serial.readStringUntil('\n');
         // Traitement de la commande
-        Configuration(fct);
+        Command_set(fct);
     }
 }
