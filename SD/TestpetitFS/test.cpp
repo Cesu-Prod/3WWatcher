@@ -2,8 +2,9 @@
 // For minimum flash use edit pffconfig.h and only enable
 // _USE_READ and either _FS_FAT16 or _FS_FAT32
 
-#include "PF.h"
 #include "Arduino.h"
+#include "PF.h"
+
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
@@ -36,10 +37,44 @@ void test() {
     Serial.write(buf, nr);
   }
 }
+
+void listFiles() {
+    FRESULT res;
+    DIR dir;
+    FILINFO fno;
+
+    // Initialize SD and file system.
+    if (PF.begin(&fs)) errorHalt("pf_mount");
+
+    // Open the root directory.
+    res = PF.openDirectory(&dir, "/");
+    if (res != FR_OK) errorHalt("pf_opendir");
+
+    // Read and display each file in the directory.
+    while (1) {
+        res = PF.readDirectory(&dir, &fno);
+        if (res != FR_OK) {
+            errorHalt("pf_readdir");
+        }
+        if (fno.fname[0] == 0) break; // End of directory.
+
+        // Display the file name.
+        Serial.print(fno.fname);
+        if (fno.fattrib & AM_DIR) {
+            Serial.println(" (Directory)");
+        } else {
+            Serial.print(" (File, size: ");
+            Serial.print(fno.fsize);
+            Serial.println(" bytes)");
+        }
+    }
+}
+
 //------------------------------------------------------------------------------
 void setup() {
   Serial.begin(9600);
   test();
+  listFiles();
   Serial.println("\nDone!");
 }
 void loop() {}
