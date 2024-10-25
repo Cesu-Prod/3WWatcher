@@ -90,8 +90,8 @@ void ColorerLED(byte couleur1[3], byte couleur2[3], bool is_second_longer) {
 
 void toggleLED() {
     if (err_code > 0) {
-        unsigned short int color1[3] = {255, 0, 0};
-        unsigned short int color2[3];
+        byte color1[3] = {255, 0, 0};
+        byte color2[3];
         bool is_second_longer;
 
         switch (err_code) {
