@@ -1,13 +1,12 @@
-Reste : Capteurscode/BEEMO, SD, Test_2, WIRE
-
   //////////////
  // Includes //
 //////////////
 
 #include "Arduino.h"
 #include "RTClib.h"
-
 #include <EEPROM.h>
+#include <SPI.h>
+#include <SdFat.h>
 #include <Adafruit_BME280.h>
 #include <Wire.h>
 
@@ -18,8 +17,9 @@ extern "C" void __attribute__((weak)) yield(void) {}
  // Variables globales et constantes //
 //////////////////////////////////////
 
-Adafruit_BME280 bme;
 RTC_DS1307 rtc;
+SdFat SD;
+Adafruit_BME280 bme;
 
 // Pins
 const uint8_t red_btn_pin = 2;
@@ -36,15 +36,26 @@ volatile unsigned long crnt_time;
 uint8_t err_code;
 const uint8_t param_num = 15;
 bool dataValid;
+
 volatile unsigned long int gps_time;
 volatile unsigned long int rtc_time;
 volatile unsigned long int lum_time;
 volatile unsigned long int hum_time;
 volatile unsigned long int prs_time;
 volatile unsigned long int tmp_time;
+
 bool gps_mes = true;
 float lat = 0.0;
 float lon = 0.0;
+char lat_dir, lon_dir;
+
+uint8_t hour = 0;
+uint8_t minute = 0;
+uint8_t second = 0;
+uint8_t day = 0;
+uint8_t month = 0;
+unsigned short int year = 0;
+char week_day;
 
 // LED //
 byte _clk_pin;
@@ -61,6 +72,15 @@ unsigned long int inact_time;
 // INTERRUPT //
 volatile unsigned long red_btn_time; // Temps de début pour le bouton rouge
 volatile unsigned long grn_btn_time; // Temps de début pour le bouton vert
+
+// SD //
+const int chip_slct = 10; // Pin CS pour la carte SD
+File mes_file;
+char file_name[12]; // Pour stocker le nom du fichier
+int file_idx = 0; // Compteur pour le nom du fichier
+int pre_day = -1; // Initialisé à une valeur invalide
+int pre_month = -1;
+int pre_year = -1;
 
 
   ////////////////
@@ -381,7 +401,6 @@ float convertNMEAToDecimal(float val) {
 bool parseGGA(char* trame, float &lat, float &lon) {
     char* ptr = strtok(trame, ",");
     uint8_t index = 0;
-    char lat_dir, lon_dir;
     
     while (ptr != NULL) {
         switch(index) {
@@ -787,8 +806,9 @@ void Standard() {
     mode = true;
     Mesures(false);
     toggleLED();
-    mesure_save(); manque + (moyenne)
+    mesure_save();
     Serial.flush();
+    delay(param[0].val);
 }
 
 void Economique() {
@@ -796,8 +816,19 @@ void Economique() {
     param[0].val = param[0].val * 2;
     Mesures(true);
     toggleLED();
-    mesure_save(); manque + (moyenne)
+    mesure_save();
     Serial.flush();
+    delay(param[0].val);
+}
+
+void Send_Serial() {
+    Serial.println(String(hour) + ":" + String(minute) + ":" + String(second) + " - " + 
+            String(lat) + " " + String(lat_dir) + ", " + 
+            String(lon) + " " + String(lon_dir) + ", " + 
+            String(ssr_lum.Average()) + ", " + 
+            String(ssr_hum.Average()) + ", " + 
+            String(ssr_tmp.Average()) + ", " + 
+            String(ssr_prs.Average()));
 }
 
 void Maintenance() {
@@ -805,7 +836,8 @@ void Maintenance() {
 
     while (true) {
         Mesures(false);
-        Send_Serial(); manque
+        Send_Serial();
+        delay(param[0].val);
     }
     Serial.println("1");
 }
@@ -870,6 +902,67 @@ void grn_btn_rise() {
     }
 }
 
+// SD //
+void create_new_file() {
+    // Générer un nom de fichier unique
+    sprintf(file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
+    mes_file = SD.open(file_name, FILE_WRITE);
+    if (!mes_file) {
+        err_code = 6;
+        return;
+    }
+}
+
+void write_mes(String data) {
+    // Vérifier le changement de date
+    if (day != pre_day || month != pre_month || year != pre_year) {
+        // Fermer le fichier actuel si ouvert
+        if (mes_file) {
+            mes_file.close();
+        }
+
+        // Réinitialiser l'index du fichier
+        file_idx = 0;
+
+        // Créer un nouveau fichier pour le nouveau jour
+        create_new_file();
+
+        // Mettre à jour le jour, le mois et l'année précédents
+        pre_day = day;
+        pre_month = month;
+        pre_year = year;
+    }
+
+    if (mes_file.size() >= param[1].val) {
+        // Fermer le fichier actuel
+        mes_file.close();
+
+        // Incrémenter l'index du fichier
+        file_idx++;
+
+        // Renommer le fichier
+        char old_file_name[12];
+        sprintf(old_file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
+        String new_file_name = String(file_name);
+        SD.rename(old_file_name, new_file_name);
+        
+        // Créer un nouveau fichier
+        create_new_file();
+    }
+    // Écrire les données dans le fichier
+    mes_file.println(data);
+}
+
+void mesure_save() {
+    write_mes(String(hour) + ":" + String(minute) + ":" + String(second) + " - " + 
+               String(lat) + " " + String(lat_dir) + ", " + 
+               String(lon) + " " + String(lon_dir) + ", " + 
+               String(ssr_lum.Average()) + ", " + 
+               String(ssr_hum.Average()) + ", " + 
+               String(ssr_tmp.Average()) + ", " + 
+               String(ssr_prs.Average()));
+}
+
 
   ////////////////////
  // Initialisation //
@@ -899,6 +992,12 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_rise, RISING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_rise, RISING);
+
+    // Initialiser la carte SD
+    if (!SD.begin(chip_slct)) {
+        err_code = 6;
+        return;
+    }
 }
 
 
