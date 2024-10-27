@@ -1,5 +1,4 @@
-Finish : Capteurscode, LED, Mode, RTC,
-Reste : Capteurscode/BEEMO, Main code, SD, Test_2, WIRE
+Reste : Capteurscode/BEEMO, SD, Test_2, WIRE
 
   //////////////
  // Includes //
@@ -13,6 +12,7 @@ Reste : Capteurscode/BEEMO, Main code, SD, Test_2, WIRE
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
+
   //////////////////////////////////////
  // Variables globales et constantes //
 //////////////////////////////////////
@@ -20,24 +20,30 @@ extern "C" void __attribute__((weak)) yield(void) {}
 Adafruit_BME280 bme;
 RTC_DS1307 rtc;
 
+// Pins
+const uint8_t red_btn_pin = 2;
+const uint8_t grn_btn_pin = 3;
+
 // Constants
 #define _CLK_PULSE_DELAY 20
 
-uint8_t err_code;
 bool mode;
-const uint8_t param_num = 15;
+volatile bool config_mode = false; // État de la configuration
+volatile unsigned long crnt_time;
 
 // MESURES //
+uint8_t err_code;
+const uint8_t param_num = 15;
 bool dataValid;
-unsigned long int gps_time = 0;
-unsigned long int rtc_time = 0;
-unsigned long int lum_time = 0;
-unsigned long int hum_time = 0;
-unsigned long int prs_time = 0;
-unsigned long int tmp_time = 0;
+volatile unsigned long int gps_time;
+volatile unsigned long int rtc_time;
+volatile unsigned long int lum_time;
+volatile unsigned long int hum_time;
+volatile unsigned long int prs_time;
+volatile unsigned long int tmp_time;
 bool gps_mes = true;
-float latitude = 0.0;
-float longitude = 0.0;
+float lat = 0.0;
+float lon = 0.0;
 
 // LED //
 byte _clk_pin;
@@ -50,9 +56,10 @@ byte _current_blue;
 uint8_t vers = 0.8;
 uint8_t lot_num = 2;
 
-volatile unsigned long bouton_rouge_start = 0; // Temps de début pour le bouton rouge
-volatile unsigned long bouton_vert_start = 0;  // Temps de début pour le bouton vert
-volatile bool config = false; // État de la configuration
+// INTERRUPT //
+volatile unsigned long red_btn_time; // Temps de début pour le bouton rouge
+volatile unsigned long grn_btn_time; // Temps de début pour le bouton vert
+
 
   ////////////////
  // Structures //
@@ -323,12 +330,13 @@ static Sensor ssr_hum;
 static Sensor ssr_tmp;
 static Sensor ssr_prs;
 
+
   ///////////////
  // Fonctions //
 ///////////////
 
 // GPS //
-bool GPS_mes(unsigned long current_time) {
+bool GPS_mes(unsigned long crnt_time) {
     // Buffer pour stocker la trame NMEA
     static char buffer[100];
     static uint8_t position = 0;
@@ -342,9 +350,9 @@ bool GPS_mes(unsigned long current_time) {
             
             // Vérifie si c'est une trame GNGGA
             if (strstr(buffer, "$GNGGA") != NULL) {
-                // Parse la trame pour extraire latitude et longitude
-                parseGGA(buffer, latitude, longitude);
-                gps_time = current_time; // Mettre à jour le temps de la dernière lecture GPS
+                // Parse la trame pour extraire lat et lon
+                parseGGA(buffer, lat, lon);
+                gps_time = crnt_time; // Mettre à jour le temps de la dernière lecture GPS
             }
             
             position = 0; // Reset la position pour la prochaine trame
@@ -368,7 +376,7 @@ float convertNMEAToDecimal(float val) {
     return degrees + (minutes / 60.0);
 }
 
-bool parseGGA(char* trame, float &latitude, float &longitude) {
+bool parseGGA(char* trame, float &lat, float &lon) {
     char* ptr = strtok(trame, ",");
     uint8_t index = 0;
     char lat_dir, lon_dir;
@@ -376,13 +384,13 @@ bool parseGGA(char* trame, float &latitude, float &longitude) {
     while (ptr != NULL) {
         switch(index) {
             case 2: // Latitude
-                latitude = convertNMEAToDecimal(atof(ptr));
+                lat = convertNMEAToDecimal(atof(ptr));
                 break;
             case 3: // Direction N/S
                 lat_dir = ptr[0];
                 break;
             case 4: // Longitude
-                longitude = convertNMEAToDecimal(atof(ptr));
+                lon = convertNMEAToDecimal(atof(ptr));
                 break;
             case 5: // Direction E/W
                 lon_dir = ptr[0];
@@ -392,10 +400,10 @@ bool parseGGA(char* trame, float &latitude, float &longitude) {
         index++;
     }
     // Vérification des directions et des coordonnées
-    if ((lat_dir == 'N' || lat_dir == 'S') && (lon_dir == 'E' || lon_dir == 'W') && latitude != 0.0 && longitude != 0.0) {
-        // Applique la direction à la latitude et à la longitude
-        if (lon_dir == 'W') longitude = -longitude;
-        if (lat_dir == 'S') latitude = -latitude;
+    if ((lat_dir == 'N' || lat_dir == 'S') && (lon_dir == 'E' || lon_dir == 'W') && lat != 0.0 && lon != 0.0) {
+        // Applique la direction à la lat et à la lon
+        if (lon_dir == 'W') lon = -lon;
+        if (lat_dir == 'S') lat = -lat;
         dataValid = true;
     }
     return dataValid;
@@ -409,27 +417,27 @@ void turnOffGPS() {
 // MESURES //
 void Mesures(bool gps_eco) {
     // Variable pour suivre l'état des mesures
-    unsigned long current_time = millis(); // Obtenir le temps actuel
     dataValid = false;
 
     // GPS //
     if (gps_eco) {
         if (gps_mes) {
             // Appel de la fonction pour prendre la mesure GPS
-            GPS_mes(current_time); 
+            GPS_mes(crnt_time); 
         }
         // Inverser la prise de mesure pour la prochaine fois
         gps_mes = !gps_mes;
     } else {
-        GPS_mes(current_time);
+        GPS_mes(crnt_time);
     }
     // Vérification si le GPS a été mis à jour dans les 30 secondes
-    if (current_time - gps_time >= 30000 && !dataValid) {
+    if (crnt_time - gps_time >= 30000 && !dataValid) {
         if (ssr_gps.error == 0) {
             ssr_gps.error = 1; // 30 secondes sans mise à jour GPS
-            latitude = 0;
-            longitude = 0;
+            lat = 0;
+            lon = 0;
         } else {
+            noInterrupts();
             err_code = 2;
             ssr_gps.error = 0;
         }
@@ -441,7 +449,7 @@ void Mesures(bool gps_eco) {
 
     // Récupération de la date et de l'heure actuelle
     static DateTime now = rtc.now(); // Variable statique pour réduire la pile
-    rtc_time = current_time; // Mettre à jour le temps de la dernière lecture RTC
+    rtc_time = crnt_time; // Mettre à jour le temps de la dernière lecture RTC
 
     // Récupération des composantes de l'heure
     uint8_t hour = now.hour(); // Heure
@@ -469,7 +477,7 @@ void Mesures(bool gps_eco) {
         week_day = (char)pgm_read_byte(&week_days[wd_index + i]);
     }
     // Vérification si la RTC a été mise à jour dans les 30 secondes
-    if (current_time - rtc_time >= 30000 && !dataValid) {
+    if (crnt_time - rtc_time >= 30000 && !dataValid) {
         if (ssr_rtc.error == 0) {
             ssr_rtc.error = 1; // 30 secondes sans mise à jour RTC
             hour = 0;
@@ -480,6 +488,7 @@ void Mesures(bool gps_eco) {
             year = 0;
             week_day = '\0';
         } else {
+            noInterrupts();
             err_code = 1;
             ssr_rtc.error = 0;
         }
@@ -493,14 +502,16 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de luminosité
         ssr_lum.Update(lum);
     } else {
+        noInterrupts();
         // Erreur si la luminosité est hors plage
         err_code = 4;
     }
     // Vérification si le capteur de luminosité a été mis à jour dans les 30 secondes
-    if (current_time - lum_time >= 30000 && lum == 0) {
+    if (crnt_time - lum_time >= 30000 && lum == 0) {
         if (ssr_lum.error == 0) {
             ssr_lum.error = 1; // 30 secondes sans mise à jour
         } else {
+            noInterrupts();
             err_code = 3;
             ssr_lum.error = 0;
         }
@@ -514,14 +525,16 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur d'humidité
         ssr_hum.Update(hum);
     } else {
+        noInterrupts();
         // Erreur si la luminosité est hors plage
         err_code = 4;
     }
     // Vérification si le capteur d'humidité a été mis à jour dans les 30 secondes
-    if (current_time - hum_time >= 30000 && hum == 0) {
+    if (crnt_time - hum_time >= 30000 && hum == 0) {
         if (ssr_hum.error == 0) {
             ssr_hum.error = 1; // 30 secondes sans mise à jour
         } else {
+            noInterrupts();
             err_code = 3;
             ssr_hum.error = 0;
         }
@@ -537,14 +550,16 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de pression
         ssr_prs.Update(prs);
     } else {
+        noInterrupts();
         // Erreur si la pression est hors plage
         err_code = 4;
     }
     // Vérification si le capteur de pression a été mis à jour dans les 30 secondes
-    if (current_time - prs_time >= 30000 && prs == 0) {
+    if (crnt_time - prs_time >= 30000 && prs == 0) {
         if (ssr_prs.error == 0) {
             ssr_prs.error = 1; // 30 secondes sans mise à jour
         } else {
+            noInterrupts();
             err_code = 3;
             ssr_prs.error = 0;
         }
@@ -560,14 +575,16 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de température
         ssr_tmp.Update(tmp);
     } else {
+        noInterrupts();
         // Erreur si la température est hors plage
         err_code = 4;
     }
     // Vérification si le capteur de température a été mis à jour dans les 30 secondes
-    if (current_time - tmp_time >= 30000 && tmp == 0) {
+    if (crnt_time - tmp_time >= 30000 && tmp == 0) {
         if (ssr_tmp.error == 0) {
             ssr_tmp.error = 1; // 30 secondes sans mise à jour
         } else {
+            noInterrupts();
             err_code = 3;
             ssr_tmp.error = 0;
         }
@@ -686,7 +703,7 @@ void toggleLED() {
                 break;
         }
         ColorerLED(color1, color2, is_second_longer);
-        while (true) {}
+        while (true);
     } else {
         if (mode) {
             setColorRGB(0, 255, 0);
@@ -744,13 +761,21 @@ void Command_set(String fct) {
 
 void Configuration() {
     Serial.println("Configuration :");
-    if (Serial.available() > 0) {
-        // Lecture de la commande en entrée série
-        String fct = Serial.readStringUntil('\n');
-        // Traitement de la commande
-        Command_set(fct);
+    while (true) {
+        if (Serial.available() > 0) {
+            // Lecture de la commande en entrée série
+            String fct = Serial.readStringUntil('\n');
+            // Traitement de la commande
+            Command_set(fct);
+        } else {
+            inact_time = crnt_time;
+        }
+        while (Serial.available() == 0) {
+            if (crnt_time - inact_time > 1800000) {
+                return;
+            }
+        }
     }
-    interrupt 30 min
 }
 
 void Standard() {
@@ -785,30 +810,108 @@ void Maintenance() {
     Serial.println("1");
 }
 
+void ToggleMode (bool color) {
+    if (mode){
+        if (color) {
+            Economique();
+        } else {
+            Maintenance();
+        }
+    } else {
+        if (color) {
+            Standard();
+        } else {
+            Maintenance();
+        }
+    }
+    if (Serial.available() > 0){
+        if (color){
+            Economique();
+        } else {
+            Standard();
+        }
+    }
+}
+
+// INTERRUPT //
+void red_btn_fall() {
+    if (config_mode == true) {
+        return;
+    }
+    // Gestion du bouton rouge
+    red_btn_time = crnt_time; // Enregistrer le temps de début
+}
+
+void red_btn_rise() {
+    if (config_mode == true) {
+        return;
+    }
+    // Gestion du bouton rouge
+    if (crnt_time - red_btn_time > 5000) { // Si plus de 5000 ms passées
+        ToggleMode(false); // Appel de ToggleMode
+    }
+}
+
+void grn_btn_fall() {
+    if (config_mode == true) {
+        return;
+    }
+    // Gestion du bouton vert
+    grn_btn_time = crnt_time; // Enregistrer le temps de début
+}
+
+void grn_btn_rise() {
+    if (config_mode == true) {
+        return;
+    }
+    // Gestion du bouton vert
+    if (crnt_time - grn_btn_time > 5000) { // Si plus de 5000 ms passées
+        ToggleMode(true); // Appel de ToggleMode
+    }
+}
+
+
   ////////////////////
  // Initialisation //
 ////////////////////
 
 void setup() {
     Serial.begin(9600);
-    
     Init_LED(7, 8);
-    
+    pinMode(red_btn_pin, INPUT_PULLUP);
+    pinMode(grn_btn_pin, INPUT_PULLUP);
+
     if (!rtc.begin()) {
-        Serial.println(F("RTC error")); // F() stocke la chaîne en mémoire flash
-        while (1);
+        noInterrupt();
+        err_code = 1;
+        toggleLED();
+        while (true);
     }
 
     if (!bme.begin()) {
-        Serial.println(F("BME error")); // F() stocke la chaîne en mémoire flash
+        noInterrupt();
+        err_code = 1;
+        toggleLED();
         while (1);
     }
+
+    attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_fall, FALLING);
+    attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_rise, RISING);
+    attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
+    attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_rise, RISING);
 }
+
 
   ////////////////////
  // Code principal //
 ////////////////////
 
 void loop() {
-    
+    crnt_time = millis();
+    if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
+        config_mode = true;
+        Configuration(); // Mode configuration
+    }
+
+    Standard(); // Mode standard
 }

@@ -3,7 +3,7 @@ const char week_days[] PROGMEM = "SUNMONTUEWEDTHUFRISAM";
 
 // Récupération de la date et de l'heure actuelle
 static DateTime now = rtc.now(); // Variable statique pour réduire la pile
-rtc_time = current_time; // Mettre à jour le temps de la dernière lecture RTC
+rtc_time = crnt_time; // Mettre à jour le temps de la dernière lecture RTC
 
 // Récupération des composantes de l'heure
 uint8_t hour = now.hour(); // Heure
@@ -31,7 +31,7 @@ for (uint8_t i = 0; i < 3; i++) {
     week_day = (char)pgm_read_byte(&week_days[wd_index + i]);
 }
 // Vérification si la RTC a été mise à jour dans les 30 secondes
-if (current_time - rtc_time >= 30000 && !dataValid) {
+if (crnt_time - rtc_time >= 30000 && !dataValid) {
     if (ssr_rtc.error == 0) {
         ssr_rtc.error = 1; // 30 secondes sans mise à jour RTC
         hour = 0;

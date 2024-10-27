@@ -1,28 +1,22 @@
 void ToggleMode (bool color) {
-
-  if (mode){
-  
-    if (color) {
-      economie();
+    if (mode){
+        if (color) {
+            Economique();
+        } else {
+            Maintenance();
+        }
     } else {
-      maintenance();
+        if (color) {
+            Standard();
+        } else {
+            Maintenance();
+        }
     }
-  
-  } else {
-
-    if (color) {
-      standard();
-    } else {
-      maintenance();
+    if (Serial.available() > 0){
+        if (color){
+            Economique();
+        } else {
+            Standard();
+        }
     }
-  }
-
-  if (Serial.available() > 0){
-
-    if (color){
-      economie();
-    } else {
-      standard();
-    }
-  }
 }

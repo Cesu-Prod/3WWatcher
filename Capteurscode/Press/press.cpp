@@ -14,7 +14,7 @@ if (prs < param[13].min && prs > param[13].max) {
     err_code = 4;
 }
 // Vérification si le capteur de pression a été mis à jour dans les 30 secondes
-if (current_time - prs_time >= 30000 && prs == 0) {
+if (crnt_time - prs_time >= 30000 && prs == 0) {
     if (ssr_prs.error == 0) {
         ssr_prs.error = 1; // 30 secondes sans mise à jour
     } else {

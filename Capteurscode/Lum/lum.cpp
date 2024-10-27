@@ -9,7 +9,7 @@ if (lum < param[4].min && lum > param[4].max) {
     err_code = 4;
 }
 // Vérification si le capteur de luminosité a été mis à jour dans les 30 secondes
-if (current_time - lum_time >= 30000 && lum == 0) {
+if (crnt_time - lum_time >= 30000 && lum == 0) {
     if (ssr_lum.error == 0) {
         ssr_lum.error = 1; // 30 secondes sans mise à jour
     } else {

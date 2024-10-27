@@ -14,7 +14,7 @@ if (tmp < param[7].min && tmp > param[7].max) {
     err_code = 4;
 }
 // Vérification si le capteur de température a été mis à jour dans les 30 secondes
-if (current_time - tmp_time >= 30000 && tmp == 0) {
+if (crnt_time - tmp_time >= 30000 && tmp == 0) {
     if (ssr_tmp.error == 0) {
         ssr_tmp.error = 1; // 30 secondes sans mise à jour
     } else {
