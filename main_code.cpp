@@ -6,8 +6,9 @@ Reste : Capteurscode/BEEMO, SD, Test_2, WIRE
 
 #include "Arduino.h"
 #include "RTClib.h"
-#include <Adafruit_BME280.h>
+
 #include <EEPROM.h>
+#include <Adafruit_BME280.h>
 #include <Wire.h>
 
 extern "C" void __attribute__((weak)) yield(void) {}
@@ -55,6 +56,7 @@ byte _current_blue;
 // CONFIGURATION //
 uint8_t vers = 0.8;
 uint8_t lot_num = 2;
+unsigned long int inact_time;
 
 // INTERRUPT //
 volatile unsigned long red_btn_time; // Temps de début pour le bouton rouge
@@ -783,7 +785,6 @@ void Standard() {
         param[0].val = param[0].val / 2;
     }
     mode = true;
-    interrupt
     Mesures(false);
     toggleLED();
     mesure_save(); manque + (moyenne)
@@ -793,7 +794,6 @@ void Standard() {
 void Economique() {
     mode = false;
     param[0].val = param[0].val * 2;
-    interrupt
     Mesures(true);
     toggleLED();
     mesure_save(); manque + (moyenne)
@@ -882,14 +882,14 @@ void setup() {
     pinMode(grn_btn_pin, INPUT_PULLUP);
 
     if (!rtc.begin()) {
-        noInterrupt();
+        noInterrupts();
         err_code = 1;
         toggleLED();
         while (true);
     }
 
     if (!bme.begin()) {
-        noInterrupt();
+        noInterrupts();
         err_code = 1;
         toggleLED();
         while (1);

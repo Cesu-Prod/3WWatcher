@@ -6,13 +6,21 @@
 
 void Configuration() {
     Serial.println("Configuration :");
-    if (Serial.available() > 0) {
-        // Lecture de la commande en entrée série
-        String fct = Serial.readStringUntil('\n');
-        // Traitement de la commande
-        Command_set(fct);
+    while (true) {
+        if (Serial.available() > 0) {
+            // Lecture de la commande en entrée série
+            String fct = Serial.readStringUntil('\n');
+            // Traitement de la commande
+            Command_set(fct);
+        } else {
+            inact_time = crnt_time;
+        }
+        while (Serial.available() == 0) {
+            if (crnt_time - inact_time > 1800000) {
+                return;
+            }
+        }
     }
-    interrupt 30 min;
 }
 
 void Standard() {
@@ -20,24 +28,20 @@ void Standard() {
         param[0].val = param[0].val / 2;
     }
     mode = true;
-    interrupt;
     Mesures(false);
     toggleLED();
     mesure_save();
     Serial.flush();
 }
 
-
 void Economique() {
     mode = false;
     param[0].val = param[0].val * 2;
-    interrupt;
     Mesures(true);
     toggleLED();
     mesure_save();
     Serial.flush();
 }
-
 
 void Maintenance() {
     setColorRGB(255, 20, 0);
