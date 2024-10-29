@@ -2,79 +2,120 @@
 // For minimum flash use edit pffconfig.h and only enable
 // _USE_READ and either _FS_FAT16 or _FS_FAT32
 
-#include "Arduino.h"
 #include "PF.h"
-
+#include "Arduino.h"
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
+FATFS fs;    // File system object
+FIL file;    // File object
 
-// The SD chip select pin is currently defined as 10
-// in pffArduino.h.  Edit pffArduino.h to change the CS pin.
-
-FATFS fs;     /* File system object */
-//------------------------------------------------------------------------------
-void errorHalt(char* msg) {
-  Serial.print("Error: ");
-  Serial.println(msg);
-  while(1);
-}
-//------------------------------------------------------------------------------
-void test() {
-  uint8_t buf[32];
-  
-  // Initialize SD and file system.
-  if (PF.begin(&fs)) errorHalt("pf_mount");
-  
-  // Open test file.
-  if (PF.open("TEST.TXT")) errorHalt("pf_open");
-  
-  // Dump test file to Serial.
-  while (1) {
-    UINT nr;
-    if (PF.readFile(buf, sizeof(buf), &nr)) errorHalt("pf_read");
-    if (nr == 0) break;
-    Serial.write(buf, nr);
+// Initialize SD card with PetitFS
+bool initializeSD() {
+  if (pf_mount(&fs) != FR_OK) {
+    return false;
   }
+  return true;
 }
 
-void listFiles() {
-    FRESULT res;
-    DIR dir;
-    FILINFO fno;
+// Create a text file
+bool createFile(const char* filename) {
+  FRESULT res;
+  
+  // Open file with write permissions (will create if doesn't exist)
+  res = pf_open(filename);
+  if (res != FR_OK) {
+    return false;
+  }
+  
+  // Close the file
+  return true;
+}
 
-    // Initialize SD and file system.
-    if (PF.begin(&fs)) errorHalt("pf_mount");
+// Write to text file
+bool writeToFile(const char* filename, const char* data) {
+  FRESULT res;
+  UINT written;
+  
+  // Open file
+  res = pf_open(filename);
+  if (res != FR_OK) {
+    return false;
+  }
+  
+  // Write data
+  res = pf_write(data, strlen(data), &written);
+  if (res != FR_OK || written != strlen(data)) {
+    return false;
+  }
+  
+  // Finalize write operation
+  res = pf_write(0, 0, &written);
+  return (res == FR_OK);
+}
 
-    // Open the root directory.
-    res = PF.openDirectory(&dir, "/");
-    if (res != FR_OK) errorHalt("pf_opendir");
+// Get file size
+unsigned long getFileSize(const char* filename) {
+  FRESULT res;
+  
+  // Open file
+  res = pf_open(filename);
+  if (res != FR_OK) {
+    return 0;
+  }
+  
+  // Return file size
+  return file.fsize;
+}
 
-    // Read and display each file in the directory.
-    while (1) {
-        res = PF.readDirectory(&dir, &fno);
-        if (res != FR_OK) {
-            errorHalt("pf_readdir");
-        }
-        if (fno.fname[0] == 0) break; // End of directory.
-
-        // Display the file name.
-        Serial.print(fno.fname);
-        if (fno.fattrib & AM_DIR) {
-            Serial.println(" (Directory)");
-        } else {
-            Serial.print(" (File, size: ");
-            Serial.print(fno.fsize);
-            Serial.println(" bytes)");
-        }
+// Rename file (Note: PetitFS doesn't have direct rename, we need to simulate it)
+bool renameFile(const char* oldName, const char* newName) {
+  FRESULT res;
+  UINT bytesRead, bytesWritten;
+  char buffer[32];  // Buffer for copying
+  
+  // Open source file
+  res = pf_open(oldName);
+  if (res != FR_OK) {
+    return false;
+  }
+  
+  // Create destination file
+  res = pf_open(newName);
+  if (res != FR_OK) {
+    return false;
+  }
+  
+  // Copy data in chunks
+  while (1) {
+    res = pf_read(buffer, sizeof(buffer), &bytesRead);
+    if (res != FR_OK || bytesRead == 0) break;
+    
+    res = pf_write(buffer, bytesRead, &bytesWritten);
+    if (res != FR_OK || bytesRead != bytesWritten) {
+      return false;
     }
+  }
+  
+  // Finalize write
+  res = pf_write(0, 0, &bytesWritten);
+  
+  // Note: PetitFS doesn't support delete, so old file will remain
+  return (res == FR_OK);
 }
 
-//------------------------------------------------------------------------------
-void setup() {
-  Serial.begin(9600);
-  test();
-  listFiles();
-  Serial.println("\nDone!");
+// Get available space (Note: PetitFS doesn't provide direct free space checking)
+unsigned long getAvailableSpace() {
+  // PetitFS doesn't provide a direct way to check free space
+  // This is a simplified version that returns a constant
+  return 0xFFFFFFFF;  // Returns max value to indicate unknown
 }
-void loop() {}
+
+// Disconnect SD card
+void disconnectSD() {
+  // PetitFS doesn't require explicit unmounting
+  // But we can reset SPI pins if needed
+  pinMode(SS, INPUT);
+  SPCR = 0;
+  SPSR = 0;
+}

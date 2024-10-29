@@ -3,7 +3,7 @@
 // _USE_READ and either _FS_FAT16 or _FS_FAT32
 
 #include "PF.h"
-#include "PetitSerial.h"
+
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
@@ -14,10 +14,6 @@ extern "C" void __attribute__((weak)) yield(void) {}
 #define FA_OPEN_ALWAYS      0x10
 #define FA_OPEN_APPEND      0x30
 
-
-PetitSerial PS;
-// Use PetitSerial instead of Serial.
-#define Serial PS
 
 // The SD chip select pin is currently defined as 10
 // in pffArduino.h.  Edit pffArduino.h to change the CS pin.
@@ -37,7 +33,7 @@ void readtest() {
   if (PF.begin(&fs)) errorHalt("pf_mount");
   
   // Open test file.
-  if (PF.open("RANDOM.TXT")) errorHalt("pf_open");
+  if (PF.open("jsp.txt")) errorHalt("pf_open");
   
   // Dump test file to Serial.
   while (1) {
@@ -48,26 +44,37 @@ void readtest() {
   }
 }
 //------------------------------------------------------------------------------
-void writetest() {
-  uint8_t buf[32];
-  UINT bw;
-  const char* randomText = "The quick brown fox jumps over the damn lazy dogs, is a really nice sentence to write...";
+void createFile(const char* filename) {
+  char fullFilename[20];
+  sprintf(fullFilename, "%s.txt", filename);
   
   // Initialize SD and file system.
   if (PF.begin(&fs)) errorHalt("pf_mount");
   
   // Open test file in write mode.
-  if (PF.open("RANDOM.TXT", FA_WRITE | FA_CREATE_ALWAYS)) errorHalt("pf_open");
-  
-  if (PF.writeFile(randomText, strlen(randomText), &bw)) errorHalt("pf_write");
+  if (PF.open(fullFilename, FA_WRITE | FA_CREATE_ALWAYS)) errorHalt("pf_open");
+}
 
-  // PetitFS might not have a close method, so we skip it.
-  // if (PF.close()) errorHalt("pf_close");
+void addTextToFile(const char* filename, const char* text) {
+  char fullFilename[20];
+  sprintf(fullFilename, "%s.txt", filename);
+  
+  // Initialize SD and file system.
+  if (PF.begin(&fs)) errorHalt("pf_mount");
+  
+  // Open test file in append mode.
+  if (PF.open(fullFilename, FA_WRITE | FA_OPEN_APPEND)) errorHalt("pf_open");
+  
+  UINT bw;
+  if (PF.writeFile(text, strlen(text), &bw)) errorHalt("pf_write");
 }
 //------------------------------------------------------------------------------
 void setup() {
   Serial.begin(9600);
-  writetest();
+  createFile("jsp.txt");
+  readtest();
+  Serial.println("Adding \"IDK MAN\" to file ")
+  addTextToFile("jsp.txt", "IDK MAN")
   readtest();
   Serial.println("\nDone!");
 }
