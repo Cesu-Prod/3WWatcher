@@ -4,32 +4,50 @@
 ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////
 
+void Configuration() {
+    Serial.println("Configuration :");
+    while (true) {
+        if (Serial.available() > 0) {
+            // Lecture de la commande en entrée série
+            String fct = Serial.readStringUntil('\n');
+            // Traitement de la commande
+            Command_set(fct);
+        } else {
+            inact_time = crnt_time;
+        }
+        while (Serial.available() == 0) {
+            if (crnt_time - inact_time > 1800000) {
+                return;
+            }
+        }
+    }
+}
 
-void standard() {
+void Standard() {
     if (mode = false) {
-    log_interval = log_interval / 2;
+        param[0].val = param[0].val / 2;
     }
     mode = true;
+    Mesures(false);
     toggleLED();
     mesure_save();
     Serial.flush();
 }
 
-
-void economique() {
+void Economique() {
     mode = false;
-    log_interval = log_interval * 2;
+    param[0].val = param[0].val * 2;
+    Mesures(true);
     toggleLED();
     mesure_save();
     Serial.flush();
 }
 
-
-void maintenance() {
-    leds.setColorRGB(i, 255, 20, 0);
+void Maintenance() {
+    setColorRGB(255, 20, 0);
 
     while (true) {
-        mesures();
+        Mesures(false);
         Send_Serial();
     }
     Serial.println("1");

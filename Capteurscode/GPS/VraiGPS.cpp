@@ -8,7 +8,7 @@ float convertNMEAToDecimal(float val) {
     return degrees + (minutes / 60.0);
 }
 
-bool parseGGA(char* trame, float &latitude, float &longitude) {
+bool parseGGA(char* trame, float &lat, float &lon) {
     char* ptr = strtok(trame, ",");
     unsigned short int index = 0;
     char lat_dir, lon_dir;
@@ -16,21 +16,21 @@ bool parseGGA(char* trame, float &latitude, float &longitude) {
     while (ptr != NULL) {
         switch(index) {
             case 2: // Latitude
-                latitude = convertNMEAToDecimal(atof(ptr));
+                lat = convertNMEAToDecimal(atof(ptr));
                 break;
             case 3: // Direction N/S
                 lat_dir = ptr[0];
                 break;
             case 4: // Longitude
-                longitude = convertNMEAToDecimal(atof(ptr));
+                lon = convertNMEAToDecimal(atof(ptr));
                 break;
             case 5: // Direction E/W
                 lon_dir = ptr[0];
-                if (lon_dir == 'W') longitude = -longitude;
-                if (lat_dir == 'S') latitude = -latitude;
+                if (lon_dir == 'W') lon = -lon;
+                if (lat_dir == 'S') lat = -lat;
                 
                 // Affiche les coordonnées si valides
-                if (latitude != 0.0 && longitude != 0.0) {
+                if (lat != 0.0 && lon != 0.0) {
                     return true;
                 }
                 break;
@@ -41,7 +41,7 @@ bool parseGGA(char* trame, float &latitude, float &longitude) {
     return false;
 }
 
-bool printCurrentCoordinates(float &latitude, float &longitude) {
+bool printCurrentCoordinates(float &lat, float &lon) {
     // Buffer pour stocker la trame NMEA
     static char buffer[100];
     static unsigned short int position = 0;
@@ -55,8 +55,8 @@ bool printCurrentCoordinates(float &latitude, float &longitude) {
             
             // Vérifie si c'est une trame GNGGA
             if (strstr(buffer, "$GNGGA") != NULL) {
-                // Parse la trame pour extraire latitude et longitude
-                if (parseGGA(buffer, latitude, longitude)) {
+                // Parse la trame pour extraire lat et lon
+                if (parseGGA(buffer, lat, lon)) {
                     return true;
                 }
             }
@@ -82,22 +82,22 @@ void setup() {
 
     Serial.println("Démarrage du GPS...");
 
-    float latitude = 0.0;
-    float longitude = 0.0;
+    float lat = 0.0;
+    float lon = 0.0;
     unsigned long startTime = millis();
 
     // Attendre jusqu'à ce que des coordonnées valides soient reçues
-    while (!printCurrentCoordinates(latitude, longitude)) {
+    while (!printCurrentCoordinates(lat, lon)) {
         // Attendre un peu pour éviter de surcharger le port série
         delay(100);
     }
 
     // Afficher les coordonnées
     Serial.print("Latitude: ");
-    Serial.print(latitude, 6);
+    Serial.print(lat, 6);
     Serial.print("° ");
     Serial.print("Longitude: ");
-    Serial.print(longitude, 6);
+    Serial.print(lon, 6);
     Serial.println("°");
 
     // Afficher le temps écoulé depuis le démarrage

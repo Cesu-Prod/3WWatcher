@@ -15,8 +15,7 @@ void setup() {
 }
 
 void loop() {
-    static DateTime now; // Variable statique pour réduire la pile
-    now = rtc.now();
+    static DateTime now = rtc.now(); // Variable statique pour réduire la pile
     
     // Affichage optimisé de l'heure
     printDigits(now.hour());
