@@ -10,7 +10,8 @@
 #define BATCH "NaN"
 #endif
 
-
+#define F_CPU 16000000UL  // Your CPU frequency (usually 16MHz for Arduino)
+#define TIMER1_COMPARE_VALUE ((F_CPU / (256UL * 1)) - 1)  // For 1Hz interrupt
 
   //////////////
  // Includes //
@@ -20,13 +21,6 @@
 #include "BME280_Mini.h"
 #include "EEPROM.h"
 #include "SoftwareSerial.h"
-
-
-
-#include "RTClib.h"
-#include <SPI.h>
-#include <SdFat.h>
-#include <Wire.h>
 
 
 
@@ -40,21 +34,22 @@ extern "C" void __attribute__((weak)) yield(void) {}  // Acompil specific line, 
 ////////////////////////////////////
 
 
+
+
 uint8_t err_code;   // 3 bits
+uint8_t crt_ssr;
 uint8_t mode;       // 2 bits
 uint8_t timer1Count = 0;
 const char* const week_days[7] PROGMEM = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
 
 
-// RTC //
-RTC_DS1307 rtc;                             // RTC, us ing the DS1307 chip and wire module.
 
 
 // BME //
 #define SDA_PIN A4
 #define SCL_PIN A3
 const BME280_Mini bme(SDA_PIN, SCL_PIN);    // Uses the default address (0x76).
-
+BME280_Mini::Data data;
 
 // INTERRUPTS BTN //
 #define red_btn_pin 2                       // Buttoninterrupts buttons pins config.  
@@ -70,7 +65,9 @@ const uint8_t param_num = 15;
 // GPS //
 float latitude = 0.0;
 float longitude = 0.0;
-
+bool rtc_error; 
+bool gps_error;
+SoftwareSerial gpsSerial(6, 7); // RX on pin 6, TX on pin 7
 
 // LED //
 #define _CLK_PULSE_DELAY 20 
@@ -87,7 +84,8 @@ byte _data_pin;
 #endif
 
 #define lumin_pin A0
-pinMode(A0, INPUT)
+
+
 
 
 
@@ -329,6 +327,9 @@ struct DateTime {
     uint8_t year;
 };
 
+DateTime now;
+
+
 
 // DS1307 I2C address
 #define DS1307_ADDRESS 0x68
@@ -345,98 +346,130 @@ struct DateTime {
 
 
   ///////////////
- // Fonctions //
+ // Functions //
 ///////////////
 
+// LED //
 
-// TIMEOUT TIMER //
-ISR(TIMER1_COMPA_vect) {
-    timer1Count++;
-    if (timer1Count >= TIMEOUT) {
-        if err_code > 0 {
-            toggleled();
+void clk(void) {
+    digitalWrite(_clk_pin, LOW);
+    delayMicroseconds(_CLK_PULSE_DELAY);
+    digitalWrite(_clk_pin, HIGH);
+    delayMicroseconds(_CLK_PULSE_DELAY);
+}
+
+void sendByte(byte b) {
+    for (byte i = 0; i < 8; i++) {
+        digitalWrite(_data_pin, (b & 0x80) ? HIGH : LOW);
+        clk();
+        b <<= 1;
+    }
+}
+
+void sendColor(byte red, byte green, byte blue) {
+    byte prefix = B11000000;
+    if ((blue & 0x80) == 0) prefix |= B00100000;
+    if ((blue & 0x40) == 0) prefix |= B00010000;
+    if ((green & 0x80) == 0) prefix |= B00001000;
+    if ((green & 0x40) == 0) prefix |= B00000100;
+    if ((red & 0x80) == 0) prefix |= B00000010;
+    if ((red & 0x40) == 0) prefix |= B00000001;
+    
+    sendByte(prefix);
+    sendByte(blue);
+    sendByte(green);
+    sendByte(red);
+}
+
+void setColorRGB(byte red, byte green, byte blue) {
+
+    // Send data frame prefix
+    for (byte i = 0; i < 4; i++) {
+        sendByte(0x00);
+    }
+    
+    sendColor(red, green, blue);
+}
+
+void Init_LED(byte clk_pin, byte data_pin) {
+    _clk_pin = clk_pin;
+    _data_pin = data_pin;
+
+    
+    pinMode(_clk_pin, OUTPUT);
+    pinMode(_data_pin, OUTPUT);
+    setColorRGB(0, 0, 0);
+}
+
+void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer) {
+    setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
+    delay(1000);
+    setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
+    if (is_second_longer) {
+        delay(2000);
+    } else {
+        delay(1000);
+    }
+}
+
+void toggleLED() {
+    if (err_code > 0) {
+        byte color1[3] = {255, 0, 0};
+        byte color2[3];
+        bool is_second_longer;
+
+        switch (err_code) {
+            case 1: // RTC error
+                color2[0] = 0;
+                color2[1] = 0;
+                color2[2] = 255;
+                is_second_longer = false;
+                break;
+            case 2: // GPS error
+                color2[0] = 255;
+                color2[1] = 125;
+                color2[2] = 0;
+                is_second_longer = false;
+                break;
+            case 3: // Sensor error
+                color2[0] = 0;
+                color2[1] = 255;
+                color2[2] = 0;
+                is_second_longer = false;
+                break;
+            case 4: // done ki pa konsistan
+                color2[0] = 0;
+                color2[1] = 255;
+                color2[2] = 0;
+                is_second_longer = true;
+                break;
+            case 5: // SD full error
+                color2[0] = 255;
+                color2[1] = 255;
+                color2[2] = 255;
+                is_second_longer = false;
+                break;
+            case 6: // SD access error
+                color2[0] = 255;
+                color2[1] = 255;
+                color2[2] = 255;
+                is_second_longer = true;
+                break;
         }
-        else {
-            switch (crt_ssr) {
-                case 0: // Timeout on GPS
-                    lat = NULL;
-                    lon = NULL;
-                    if (gps_error == 1) {
-                        err_code = 1;
-                        toggleled();
-                    } else {
-                        gps_error = 1;
-                    }
-                    break;
-                case 1: // Timeout on RTC
-                    now.secs = NULL;
-                    now.mins = NULL;
-                    now.hours = NULL;
-                    now.days = NULL;
-                    now.month = NULL;
-                    now.year = NULL;
-                    if (rtc_error == 1) {
-                        err_code = 2;
-                    } else {
-                        rtc_error = 1;
-                    }
-                    break;
-                case 2: // Timeout on luminosity sensor
-                    if (ssr_lum.error == 1) {
-                        err_code = 3;
-                    } else {
-                        ssr_lum.error = 1;
-                    }
-                    break;
-                case 3: // Timeout on temperature sensor
-                    if (ssr_tmp.error == 1) {
-                        err_code = 3;
-                    } else {
-                        ssr_tmp.error = 1;
-                    }
-                    break;
-                case 4: // Timeout on pressure sensor
-                    if (ssr_prs.error == 1) {
-                        err_code = 3;
-                    } else {
-                        ssr_prs.error = 1;
-                    }
-                    break;
-                case 5: // Timeout on humidity sensor
-                    if (ssr_hum.error == 1) {
-                        err_code = 3;
-                    } else {
-                        ssr_hum.error = 1;
-                    }
-                    break;
-            }
+        ColorerLED(color1, color2, is_second_longer);
+        while (true);
+    } else {
+        if (mode) {
+            setColorRGB(0, 255, 0);
+        } else {
+            setColorRGB(0, 0, 255);
         }
-        toggleled();
-        timer1Count = 0;
-}
-}
-void timer1_init(void) {
-    cli();                          // Disable interrupts
-    TCCR1A = 0;                     // Set timer mode to CTC
-    TCCR1B = (1 << WGM12);         // Set timer mode to CTC
-    OCR1A = TIMER1_COMPARE_VALUE;   // Set compare value
-    TIMSK1 = (1 << OCIE1A);        // Enable compare match interrupt
-    sei();                          // Enable interrupts
+    }
 }
 
-void startTimer1(void) {
-    cli();
-    TCNT1 = 0;
-    timer1Count = 0;
-    TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
-    sei();
-}
 
-void stopTimer1(void) {
-    cli();
-    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
-    sei();
-}
+uint8_t TIMEOUT = manager.get(TIMEOUT);
+
 
 // RTC //
 
@@ -659,7 +692,7 @@ bool getGPSdata() {
                         latitude = lat;
                         longitude = lon;
 
-                        gpsSerial.println("$PCAS04,3*1F");
+                        gpsSerial.println("$PCAS04,3*1F"); // Sleep mode
                         gpsSerial.end();
 
                         return true;
@@ -681,6 +714,95 @@ bool getGPSdata() {
     return false;
 }
 
+// TIMEOUT TIMER //
+ISR(TIMER1_COMPA_vect) {
+    timer1Count++;
+    if (timer1Count >= TIMEOUT) {
+        if (err_code > 0) {
+            toggleLED();
+        }
+        else {
+            switch (crt_ssr) {
+                case 0: // Timeout on GPS
+                    latitude = NULL;
+                    longitude = NULL;
+                    if (gps_error == 1) {
+                        err_code = 1;
+                        toggleLED();
+                    } else {
+                        gps_error = 1;
+                    }
+                    break;
+                case 1: // Timeout on RTC
+                    now.second = NULL;
+                    now.minute = NULL;
+                    now.hour = NULL;
+                    now.day = NULL;
+                    now.month = NULL;
+                    now.year = NULL;
+                    now.date = NULL;
+                    if (rtc_error == 1) {
+                        err_code = 2;
+                    } else {
+                        rtc_error = 1;
+                    }
+                    break;
+                case 2: // Timeout on luminosity sensor
+                    if (ssr_lum.error == 1) {
+                        err_code = 3;
+                    } else {
+                        ssr_lum.error = 1;
+                    }
+                    break;
+                case 3: // Timeout on temperature sensor
+                    if (ssr_tmp.error == 1) {
+                        err_code = 3;
+                    } else {
+                        ssr_tmp.error = 1;
+                    }
+                    break;
+                case 4: // Timeout on pressure sensor
+                    if (ssr_prs.error == 1) {
+                        err_code = 3;
+                    } else {
+                        ssr_prs.error = 1;
+                    }
+                    break;
+                case 5: // Timeout on humidity sensor
+                    if (ssr_hum.error == 1) {
+                        err_code = 3;
+                    } else {
+                        ssr_hum.error = 1;
+                    }
+                    break;
+            }
+        }
+        toggleLED();
+        timer1Count = 0;
+}
+}
+void timer1_init(void) {
+    cli();                          // Disable interrupts
+    TCCR1A = 0;                     // Set timer mode to CTC
+    TCCR1B = (1 << WGM12);         // Set timer mode to CTC
+    OCR1A = TIMER1_COMPARE_VALUE;   // Set compare value
+    TIMSK1 = (1 << OCIE1A);        // Enable compare match interrupt
+    sei();                          // Enable interrupts
+}
+
+void startTimer1(void) {
+    cli();
+    TCNT1 = 0;
+    timer1Count = 0;
+    TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
+    sei();
+}
+
+void stopTimer1(void) {
+    cli();
+    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
+    sei();
+}
 
 
 // MEASURES //
@@ -688,69 +810,68 @@ void Measures(bool gps_eco) {
     // Variable pour suivre l'état des mesures
     crt_ssr = 0;
     // GPS //
-    startTimer1()
-    getGPSdata()
+    startTimer1();
+    getGPSdata();
     if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
         err_code = 4;
-        ToggleLED();
+        toggleLED();
     }
-    stopTimer1()
+    stopTimer1();
 
     crt_ssr = 1;
 
     // RTC //
-    startTimer1()
+    startTimer1();
     DateTime now = readDateTime();
     if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
         err_code = 4;
-        ToggleLED();
+        toggleLED();
     }
     delay(2000);
     DateTime now2 = readDateTime();
     if (now2.second == now.second){
         err_code = 4;
-        ToggleLED();
+        toggleLED();
     }
-    stopTimer1()
+    stopTimer1();
 
-    crt_ssr = 1;
+
+    crt_ssr = 2;
     
 
     // LUMINOSITY //
-    startTimer1()
+    startTimer1();
     unsigned int lum = 0;
-    lum analogRead(lumin_pin) 
+    lum = analogRead(lumin_pin);
     if (lum >= 0 && lum <= 1023) {
         ssr_lum.Update(lum);
     } else {
         err_code = 4;
-        ToggleLED();      
+        toggleLED();      
     }
-    stopTimer1()
+    stopTimer1();
 
 
-    // HUMIDITY //
-    unsigned short int hum = 0;
+    crt_ssr = 3;
+
+
+    // TEMPERATURE //
+    startTimer1();
+    uint8_t tmp = 0;
+    while (!bme.wake()){
+        delay(100);
+    }
+    while (!bme.read(data)){
+        delay(100);
+    }
+    ssr_hum.update(data.humidity)
     hum = bme.readHumidity();
-    // Vérification si l'humidité est dans la plage autorisée
     if (hum < 0 && hum > 100) {
-        // Mise à jour de la valeur d'humidité
         ssr_hum.Update(hum);
     } else {
-        
-        // Erreur si la luminosité est hors plage
         err_code = 4;
     }
-    // Vérification si le capteur d'humidité a été mis à jour dans les 30 secondes
-    if (crnt_time - hum_time >= 30000 && hum == 0) {
-        if (ssr_hum.error == 0) {
-            ssr_hum.error = 1; // 30 secondes sans mise à jour
-        } else {
-            
-            err_code = 3;
-            ssr_hum.error = 0;
-        }
-    }
+    stopTimer1();
     
     // PRESSION //
     // Configuration du capteur de pression pour une lecture forcée
@@ -805,123 +926,7 @@ void Measures(bool gps_eco) {
 
 
 
-// LED //
 
-void clk(void) {
-    digitalWrite(_clk_pin, LOW);
-    delayMicroseconds(_CLK_PULSE_DELAY);
-    digitalWrite(_clk_pin, HIGH);
-    delayMicroseconds(_CLK_PULSE_DELAY);
-}
-
-void sendByte(byte b) {
-    for (byte i = 0; i < 8; i++) {
-        digitalWrite(_data_pin, (b & 0x80) ? HIGH : LOW);
-        clk();
-        b <<= 1;
-    }
-}
-
-void sendColor(byte red, byte green, byte blue) {
-    byte prefix = B11000000;
-    if ((blue & 0x80) == 0) prefix |= B00100000;
-    if ((blue & 0x40) == 0) prefix |= B00010000;
-    if ((green & 0x80) == 0) prefix |= B00001000;
-    if ((green & 0x40) == 0) prefix |= B00000100;
-    if ((red & 0x80) == 0) prefix |= B00000010;
-    if ((red & 0x40) == 0) prefix |= B00000001;
-    
-    sendByte(prefix);
-    sendByte(blue);
-    sendByte(green);
-    sendByte(red);
-}
-
-void Init_LED(byte clk_pin, byte data_pin) {
-    _clk_pin = clk_pin;
-    _data_pin = data_pin;
-
-    
-    pinMode(_clk_pin, OUTPUT);
-    pinMode(_data_pin, OUTPUT);
-    setColorRGB(0, 0, 0);
-}
-
-void setColorRGB(byte red, byte green, byte blue) {
-
-    // Send data frame prefix
-    for (byte i = 0; i < 4; i++) {
-        sendByte(0x00);
-    }
-    
-    sendColor(red, green, blue);
-}
-
-void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer) {
-    setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
-    delay(1000);
-    setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
-    if (is_second_longer) {
-        delay(2000);
-    } else {
-        delay(1000);
-    }
-}
-
-void toggleLED() {
-    if (err_code > 0) {
-        byte color1[3] = {255, 0, 0};
-        byte color2[3];
-        bool is_second_longer;
-
-        switch (err_code) {
-            case 1: // RTC error
-                color2[0] = 0;
-                color2[1] = 0;
-                color2[2] = 255;
-                is_second_longer = false;
-                break;
-            case 2: // GPS error
-                color2[0] = 255;
-                color2[1] = 125;
-                color2[2] = 0;
-                is_second_longer = false;
-                break;
-            case 3: // Sensor error
-                color2[0] = 0;
-                color2[1] = 255;
-                color2[2] = 0;
-                is_second_longer = false;
-                break;
-            case 4: // done ki pa konsistan
-                color2[0] = 0;
-                color2[1] = 255;
-                color2[2] = 0;
-                is_second_longer = true;
-                break;
-            case 5: // SD full error
-                color2[0] = 255;
-                color2[1] = 255;
-                color2[2] = 255;
-                is_second_longer = false;
-                break;
-            case 6: // SD access error
-                color2[0] = 255;
-                color2[1] = 255;
-                color2[2] = 255;
-                is_second_longer = true;
-                break;
-        }
-        ColorerLED(color1, color2, is_second_longer);
-        while (true);
-    } else {
-        if (mode) {
-            setColorRGB(0, 255, 0);
-        } else {
-            setColorRGB(0, 0, 255);
-        }
-    }
-}
 
 // MODES //
 
@@ -949,7 +954,7 @@ void Economique() {
 
 void Send_Serial() {
     Serial.println(String(hour) + ":" + String(minute) + ":" + String(second) + " - " + 
-            String(lat) + " " + String(lat_dir) + ", " + 
+            String(latitude) + " " + String(lat_dir) + ", " + 
             String(lon) + " " + String(lon_dir) + ", " + 
             String(ssr_lum.Average()) + ", " + 
             String(ssr_hum.Average()) + ", " + 
@@ -1028,74 +1033,17 @@ void grn_btn_rise() {
     }
 }
 
-// SD //
-void create_new_file() {
-    // Générer un nom de fichier unique
-    sprintf(file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
-    mes_file = SD.open(file_name, FILE_WRITE);
-    if (!mes_file) {
-        err_code = 6;
-        return;
-    }
-}
-
-void write_mes(String data) {
-    // Vérifier le changement de date
-    if (day != pre_day || month != pre_month || year != pre_year) {
-        // Fermer le fichier actuel si ouvert
-        if (mes_file) {
-            mes_file.close();
-        }
-
-        // Réinitialiser l'index du fichier
-        file_idx = 0;
-
-        // Créer un nouveau fichier pour le nouveau jour
-        create_new_file();
-
-        // Mettre à jour le jour, le mois et l'année précédents
-        pre_day = day;
-        pre_month = month;
-        pre_year = year;
-    }
-
-    if (mes_file.size() >= param[1].val) {
-        // Fermer le fichier actuel
-        mes_file.close();
-
-        // Incrémenter l'index du fichier
-        file_idx++;
-
-        // Renommer le fichier
-        char old_file_name[12];
-        sprintf(old_file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
-        String new_file_name = String(file_name);
-        SD.rename(old_file_name, new_file_name);
-        
-        // Créer un nouveau fichier
-        create_new_file();
-    }
-    // Écrire les données dans le fichier
-    mes_file.println(data);
-}
-
-void mesure_save() {
-    write_mes(String(hour) + ":" + String(minute) + ":" + String(second) + " - " + 
-               String(lat) + " " + String(lat_dir) + ", " + 
-               String(lon) + " " + String(lon_dir) + ", " + 
-               String(ssr_lum.Average()) + ", " + 
-               String(ssr_hum.Average()) + ", " + 
-               String(ssr_tmp.Average()) + ", " + 
-               String(ssr_prs.Average()));
-}
-
-
   ////////////////////
  // Initialisation //
 ////////////////////
 
 void setup() {
-    Serial.begin(9600);
+    if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
+        mode = 0;
+        Configuration(); // Mode configuration
+    }
+
+    pinMode(A0, INPUT)
     Init_LED(7, 8);
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
@@ -1119,24 +1067,12 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_rise, RISING);
 
-    // Initialiser la carte SD
-    if (!SD.begin(chip_slct)) {
-        err_code = 6;
-        return;
-    }
-}
-
 
   ////////////////////
  // Code principal //
 ////////////////////
 
 void loop() {
-    crnt_time = millis();
-    if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
-        config_mode = true;
-        Configuration(); // Mode configuration
-    }
 
     Standard(); // Mode standard
 }
