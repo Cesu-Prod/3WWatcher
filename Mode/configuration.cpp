@@ -1,4 +1,7 @@
-#include <EEPROM.h>
+#include "EEPROM.h"
+#include "Arduino.h"
+
+extern "C" void __attribute__((weak)) yield(void) {}  // Acompil specific line, allows the compiler to be more optimized, but not necessary on unoptimized versions of Acompil or on better compilers.
 
 // Nombre de paramètres
 const unsigned short int param_num = 15;
@@ -219,7 +222,29 @@ void Command_set(String fct) {
     // Vérifie si la commande est pour définir la date
     else if (fct.startsWith("date ")) {
         // Commande pour définir la date
-        unsigned short int month = fct.substring(5, fct.indexOf('/')).toInt(); 
+        unsigned short int mon
+
+// Définir les paramètres
+Param params[] = {
+    {18, 600, 0, 0, 600}, // LOG_INTERVALL ; 0
+    {20, 2048, 0, 4096, 2048}, // FILE_MAX_SIZE ; 1
+    {22, 30, 0, 0, 30}, // TIMEOUT ; 2
+    {24, 1, 0, 1, 1}, // LUMIN ; 3
+    {26, 255, 0, 1023, 255}, // LUMIN_LOW ; 4
+    {28, 768, 0, 1023, 768}, // LUMIN_HIGH ; 5
+    {30, 1, 0, 1, 1}, // TEMP_AIR ; 6
+    {32, -10, -40, 85, -10}, // MIN_TEMP_AIR ; 7
+    {34, 60, -40, 85, 60}, // MAX_TEMP_AIR ; 8
+    {36, 1, 0, 1, 1}, // HYGR ; 9
+    {38, 0, -40, 85, 0}, // HYGR_MINT ; 10
+    {40, 50, -40, 85, 50}, // HYGR_MAXT ; 11
+    {42, 1, 0, 1, 1}, // PRESSURE ; 12
+    {44, 850, 300, 1100, 850}, // PRESSURE_MIN ; 13
+    {46, 1080, 300, 1100, 1080}, // PRESSURE_MAX ; 14
+};
+// Pointeur vers le tableau de paramètres
+Param *param = params;
+th = fct.substring(5, fct.indexOf('/')).toInt(); 
         unsigned short int day = fct.substring(fct.indexOf('/') + 1, fct.lastIndexOf('/')).toInt(); 
         unsigned short int year = fct.substring(fct.lastIndexOf('/') + 1).toInt(); 
         configure->date(month, day, year);

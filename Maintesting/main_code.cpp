@@ -1,14 +1,32 @@
+  /////////////
+ // Version //
+/////////////
+
+#ifndef VERSION
+#define VERSION "NaN"
+#endif
+
+#ifndef BATCH
+#define BATCH "NaN"
+#endif
+
+
+
   //////////////
  // Includes //
 //////////////
 
 #include "Arduino.h"
+#include "BME280_Mini.h"
+#include "EEPROM.h"
+#include "SoftwareSerial.h"
+
+
+
 #include "RTClib.h"
-#include <EEPROM.h>
 #include <SPI.h>
 #include <SdFat.h>
 #include <Wire.h>
-#include "BME280_Mini.h"
 
 
 
@@ -30,17 +48,17 @@ struct __attribute__((packed)) {
     uint8_t month : 7;      // 7 bits
     uint8_t err_code : 3;   // 3 bits
     uint8_t mode : 2;       // 2 bits
-    uint8_t gps_mes : 1;    // 1 bit
 } packed_data;              // Total: 40 bits, will occupy 40 bits. To call, packed_data.name, since it is stored in the packed data space to avoid losing bits. It saves 32 ram bits.
 
+uint8_t timer1Count = 0;
 
 // RTC //
 RTC_DS1307 rtc;                             // RTC, us ing the DS1307 chip and wire module.
 
 
 // BME //
-#define SDA_PIN D18
-#define SCL_PIN D19
+#define SDA_PIN A4
+#define SCL_PIN A3
 const BME280_Mini bme(SDA_PIN, SCL_PIN);    // Uses the default address (0x76).
 
 
@@ -56,32 +74,24 @@ const uint8_t param_num = 15;
 
 
 // GPS //
-packed_data.gps_mes = 1;
-float lat = 0.0;
-float lon = 0.0;
+float latitude = 0.0;
+float longitude = 0.0;
 
 
 // LED //
 #define _CLK_PULSE_DELAY 20 
 byte _clk_pin;
 byte _data_pin;
-byte _current_red;
-byte _current_green;
-byte _current_blue;
 
 // CONFIGURATION //
-uint8_t vers = 0.8;
-uint8_t lot_num = 2;
-unsigned long int inact_time;
+#ifndef WWWVERSION
+#define WWWVERSION "NaN"
+#endif
 
-// SD //
-const int chip_slct = 10; // Pin CS pour la carte SD
-File mes_file;
-char file_name[12]; // Pour stocker le nom du fichier
-int file_idx = 0; // Compteur pour le nom du fichier
-int pre_day = -1; // Initialisé à une valeur invalide
-int pre_month = -1;
-int pre_year = -1;
+#ifndef WWWBATCH
+#define WWWBATCH "NaN"
+#endif
+
 
 
   ////////////////
@@ -94,10 +104,17 @@ typedef struct Node {
 } Node;
 
 typedef struct Sensor {
-    uint8_t error : 1;
+    bool activated : 1;
+    bool error : 1;
+    int min_value;
+    int max_value;
     Node *head_list;
 
-    Sensor () {
+    Sensor() {
+        activated = false;
+        error = false;
+        min_value = 0;
+        max_value = 0;
         Node *initial_node = new Node();
         Node *node = new Node;
         initial_node->value = 0;
@@ -109,15 +126,9 @@ typedef struct Sensor {
             head_list = node;
         }
     }
-    
-    void Init_list();
     void Update(short int value);
     short int Average();
 } Sensor;
-
-void Sensor::Init_list() {
-
-}
 
 void Sensor::Update(short int value) {
     Node *current;
@@ -152,202 +163,153 @@ short int Sensor::Average() {
     }
 }
 
-// Définition de la structure Param
-typedef struct Param {
-    uint8_t addr;      // Adresse de stockage
-    short int def_val;            // Valeur par défaut
-    short int min;                // Valeur minimale
-    unsigned short int max;       // Valeur maximale
-    short int val;                // Valeur actuelle
-} Param;
-
-// Définir les paramètres
-Param params[] = {
-    {18, 600, 0, 0, 600}, // LOG_INTERVAL ; 0
-    {20, 2048, 0, 4096, 2048}, // FILE_MAX_SIZE ; 1
-    {22, 30, 0, 0, 30}, // TIMEOUT ; 2
-    {24, 1, 0, 1, 1}, // LUMIN ; 3
-    {26, 255, 0, 1023, 255}, // LUMIN_LOW ; 4
-    {28, 768, 0, 1023, 768}, // LUMIN_HIGH ; 5
-    {30, 1, 0, 1, 1}, // TEMP_AIR ; 6
-    {32, -10, -40, 85, -10}, // MIN_TEMP_AIR ; 7
-    {34, 60, -40, 85, 60}, // MAX_TEMP_AIR ; 8
-    {36, 1, 0, 1, 1}, // HYGR ; 9
-    {38, 0, -40, 85, 0}, // HYGR_MINT ; 10
-    {40, 50, -40, 85, 50}, // HYGR_MAXT ; 11
-    {42, 1, 0, 1, 1}, // PRESSURE ; 12
-    {44, 850, 300, 1100, 850}, // PRESSURE_MIN ; 13
-    {46, 1080, 300, 1100, 1080}, // PRESSURE_MAX ; 14
+// Structure bits à bits pour les flags
+struct FeatureFlags {
+    uint8_t lumin : 1;
+    uint8_t temp_air : 1;
+    uint8_t hygr : 1;
+    uint8_t pressure : 1;
+    uint8_t eco : 1;
 };
-Param *param = params;
 
-// Définition de la structure Setting
-typedef struct Setting {
+// Structure optimisée pour les paramètres
+struct Parameter {
+    const __FlashStringHelper* name;
+    uint8_t address;
+    int16_t defaultValue;
+};
 
-    // Constructeur de la structure Setting
-    Setting() {
-        // Chargement des paramètres par défaut
-        load();
+// Définition des chaînes en flash
+#define DECLARE_FLASH_STRING(name, value) const char name[] PROGMEM = value
+
+DECLARE_FLASH_STRING(LUMIN_STR, "LUMIN");
+DECLARE_FLASH_STRING(LUMIN_LOW_STR, "LUMIN_LOW");
+DECLARE_FLASH_STRING(LUMIN_HIGH_STR, "LUMIN_HIGH");
+DECLARE_FLASH_STRING(TEMP_AIR_STR, "TEMP_AIR");
+DECLARE_FLASH_STRING(MIN_TEMP_STR, "MIN_TEMP_AIR");
+DECLARE_FLASH_STRING(MAX_TEMP_STR, "MAX_TEMP_AIR");
+DECLARE_FLASH_STRING(HYGR_STR, "HYGR");
+DECLARE_FLASH_STRING(HYGR_MINT_STR, "HYGR_MINT");
+DECLARE_FLASH_STRING(HYGR_MAXT_STR, "HYGR_MAXT");
+DECLARE_FLASH_STRING(PRESS_STR, "PRESSURE");
+DECLARE_FLASH_STRING(PRESS_MIN_STR, "PRESSURE_MIN");
+DECLARE_FLASH_STRING(PRESS_MAX_STR, "PRESSURE_MAX");
+DECLARE_FLASH_STRING(LOG_INT_STR, "LOG_INTERVAL");
+DECLARE_FLASH_STRING(FILE_SIZE_STR, "FILE_MAX_SIZE");
+DECLARE_FLASH_STRING(ECO_STR, "ECO");
+DECLARE_FLASH_STRING(TIMEOUT_STR, "TIMEOUT");
+
+// Table des limites min/max en flash
+const PROGMEM int16_t PARAM_LIMITS[] = {
+    0, 1,        // LUMIN
+    0, 1023,     // LUMIN_LOW
+    0, 1023,     // LUMIN_HIGH
+    0, 1,        // TEMP_AIR
+    -40, 85,     // MIN_TEMP_AIR
+    -40, 85,     // MAX_TEMP_AIR
+    0, 1,        // HYGR
+    -40, 85,     // HYGR_MINT
+    -40, 85,     // HYGR_MAXT
+    0, 1,        // PRESSURE
+    300, 1100,   // PRESSURE_MIN
+    300, 1100,   // PRESSURE_MAX
+    5, 120,      // LOG_INTERVAL
+    1024, 8192,  // FILE_MAX_SIZE
+    0, 1,         // ECO
+    1, 60        // TIMEOUT
+};
+
+class ParameterManager {
+private:
+    static const uint8_t PARAM_COUNT = 16;
+    static char stringBuffer[16];
+    static const Parameter PROGMEM params[PARAM_COUNT];
+    
+    void getLimits(uint8_t index, int16_t& minVal, int16_t& maxVal) {
+        memcpy_P(&minVal, &PARAM_LIMITS[index * 2], sizeof(int16_t));
+        memcpy_P(&maxVal, &PARAM_LIMITS[index * 2 + 1], sizeof(int16_t));
     }
 
-    // Fonction pour charger les paramètres
-    void load();
-    // Fonction pour définir une valeur
-    void value(uint8_t num, short int valeur);
-    // Fonction pour définir l'heure
-    void clock(uint8_t hour, uint8_t min, uint8_t sec);
-    // Fonction pour définir la date
-    void date(uint8_t month, uint8_t day, unsigned short int year);
-    // Fonction pour définir le jour
-    void day(String week_day);
-    // Fonction pour réinitialiser les paramètres
-    void reset();
-    // Fonction pour afficher la version
-    void version();
-} Setting;
-
-void Setting::load() {
-    // Vérifie si aucune configuration n'a été chargée
-    if (EEPROM.read(2) == 0) {
-        // Chargement des paramètres par défaut
-        for (uint8_t i = 0; i < param_num; i++) {
-            // Enregistrement de la version et du numéro de lot dans l'EEPROM
-            EEPROM.put(0, vers);
-            EEPROM.put(2, lot_num);
-            // Écriture de la valeur par défaut dans l'EEPROM
-            EEPROM.put(param[i].addr, param[i].def_val);
-            // Mise à jour de la valeur actuelle du paramètre
-            param[i].val = param[i].def_val;
+    int16_t findParam(const char* paramName, Parameter& param) {
+        for (uint8_t i = 0; i < PARAM_COUNT; i++) {
+            memcpy_P(&param, &params[i], sizeof(Parameter));
+            strcpy_P(stringBuffer, (const char*)param.name);
+            
+            if (strcmp(stringBuffer, paramName) == 0) {
+                return i;
+            }
         }
-        // Indication que la configuration a été chargée
-        EEPROM.write(2, 1);
-    } else {
-        // Chargement des paramètres depuis l'EEPROM
-        for (uint8_t i = 0; i < param_num; i++) {
-            // Lecture de la valeur actuelle du paramètre depuis l'EEPROM
-            EEPROM.get(param[i].addr, param[i].val);
+        return -1;
+    }
+
+public:
+    int16_t get(const char* paramName) {
+        Parameter param;
+        int16_t index = findParam(paramName, param);
+        
+        if (index >= 0) {
+            int16_t value;
+            EEPROM.get(param.address, value);
+            return value;
         }
+        return -327; // Error if not found
     }
-}
 
-void Setting::value(uint8_t num, short int val_par) {
-    // Vérifie si le numéro de paramètre est valide
-    if (num >= 0 && num < param_num) {
-        // Vérifie si la valeur est dans la plage autorisée ou si c'est un paramètre spécial
-        if (val_par >= param[num].min && val_par <= param[num].max || num == 1 || num == 3) {
-            // Met à jour la valeur du paramètre
-            param[num].val = val_par;
-            // Enregistre la valeur dans l'EEPROM
-            EEPROM.put(param[num].addr, val_par);
-            // Affiche un message de confirmation
-            Serial.print("Parametre ");
-            Serial.print(num);
-            Serial.print(" mis a jour a ");
-            Serial.println(val_par);
-        } else {
-            // Affiche un message d'erreur si la valeur est hors limites
-            Serial.print("Valeur hors limites pour le parametre ");
-            Serial.println(num);
+
+    bool save(const char* paramName, int16_t value) {
+        Parameter param;
+        int16_t index = findParam(paramName, param);
+        
+        if (index >= 0) {
+            int16_t minVal, maxVal;
+            getLimits(index, minVal, maxVal);
+            
+            if (value >= minVal && value <= maxVal) {
+                EEPROM.put(param.address, value);
+                return true;
+            }
         }
-    } else {
-        // Affiche un message d'erreur si le numéro de paramètre est invalide
-        Serial.println("Numero de parametre invalide");
+        return false;
     }
-}
-
-void Setting::clock(uint8_t hour, uint8_t min, uint8_t sec) {
-    // Vérifie si l'heure, la minute et la seconde sont dans la plage autorisée
-    if (hour >= 0 && hour < 24 && min >= 0 && min < 60 && sec >= 0 && sec < 60) {
-        // Enregistre l'heure, la minute et la seconde dans l'EEPROM
-        EEPROM.put(4, hour);
-        EEPROM.put(6, min);
-        EEPROM.put(8, sec);
-        // Affiche un message de confirmation
-        Serial.print("Heure mise a jour a ");
-        Serial.print(hour);
-        Serial.print(":");
-        Serial.print(min);
-        Serial.print(":");
-        Serial.println(sec);
-    } else {
-        // Affiche un message d'erreur si l'heure, la minute ou la seconde est invalide
-        Serial.println("Valeurs d'heure, de minute ou de seconde invalides");
-    }
-}
-
-void Setting::date(uint8_t month, uint8_t day, unsigned short int year) {
-    // Vérifie si le mois, le jour et l'année sont dans la plage autorisée
-    uint8_t max_days;
-    if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
-        max_days = 31;
-    } else if (month == 4 || month == 6 || month == 9 || month == 11) {
-        max_days = 30;
-    } else {
-        if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
-            max_days = 29;
-        } else {
-            max_days = 28;
+    void reset() {
+        Parameter param;
+        for (uint8_t i = 0; i < PARAM_COUNT; i++) {
+            memcpy_P(&param, &params[i], sizeof(Parameter));
+            EEPROM.put(param.address, param.defaultValue);
         }
+        Serial.println(F("Reset OK"));
     }
-    if (month >= 1 && month <= 12 && day >= 1 && day <= max_days && year >= 2000) {
-        // Enregistre le mois, le jour et l'année dans l'EEPROM
-        EEPROM.put(10, month);
-        EEPROM.put(12, day);
-        EEPROM.put(14, year);
-        // Affiche un message de confirmation
-        Serial.print("Date mise a jour a ");
-        Serial.print(month);
-        Serial.print("/");
-        Serial.print(day);
-        Serial.print("/");
-        Serial.println(year);
-    } else {
-        // Affiche un message d'erreur si le mois, le jour ou l'année est invalide
-        Serial.println("Valeurs de mois, de jour ou d'annee invalides.");
+    void version() {
+        Serial.print(F("3WWatcher v"));
+        Serial.print(WWWVERSION);
+        Serial.print(F(" b"));
+        Serial.println(WWWBATCH);
     }
-}
+};
 
-void Setting::day(String week_day) {
-    // Vérifie si le jour de la semaine est valide
-    if (week_day == "MON" || week_day == "TUE" || week_day == "WED" || week_day == "THU" || week_day == "FRI" || week_day == "SAT" || week_day == "SUN") {
-        // Enregistre le jour de la semaine dans l'EEPROM
-        EEPROM.put(16, week_day);
-        // Affiche un message de confirmation
-        Serial.print("Jour de la semaine mis a jour a ");
-        Serial.println(week_day);
-    } else {
-        // Affiche un message d'erreur si le jour de la semaine est invalide
-        Serial.println("Valeur de jour de la semaine invalide.");
-    }
-}
+const Parameter PROGMEM ParameterManager::params[ParameterManager::PARAM_COUNT] = {
+    {(const __FlashStringHelper*)LUMIN_STR, 0, 1},
+    {(const __FlashStringHelper*)LUMIN_LOW_STR, 2, 255},
+    {(const __FlashStringHelper*)LUMIN_HIGH_STR, 4, 768},
+    {(const __FlashStringHelper*)TEMP_AIR_STR, 6, 1},
+    {(const __FlashStringHelper*)MIN_TEMP_STR, 8, -10},
+    {(const __FlashStringHelper*)MAX_TEMP_STR, 10, 60},
+    {(const __FlashStringHelper*)HYGR_STR, 12, 1},
+    {(const __FlashStringHelper*)HYGR_MINT_STR, 14, 0},
+    {(const __FlashStringHelper*)HYGR_MAXT_STR, 16, 50},
+    {(const __FlashStringHelper*)PRESS_STR, 18, 1},
+    {(const __FlashStringHelper*)PRESS_MIN_STR, 20, 850},
+    {(const __FlashStringHelper*)PRESS_MAX_STR, 22, 1080},
+    {(const __FlashStringHelper*)LOG_INT_STR, 24, 10},
+    {(const __FlashStringHelper*)FILE_SIZE_STR, 26, 2048},
+    {(const __FlashStringHelper*)ECO_STR, 30, 0},
+    {(const __FlashStringHelper*)TIMEOUT_STR, 32, 30}
+};
 
-void Setting::reset() {
-    // Réinitialise les paramètres à leurs valeurs par défaut
-    for (uint8_t i = 0; i < param_num; i++) {
-        // Écriture de la valeur par défaut dans l'EEPROM
-        EEPROM.put(param[i].addr, param[i].def_val);
-        // Mise à jour de la valeur actuelle du paramètre
-        param[i].val = param[i].def_val;
-    }
-}
+char ParameterManager::stringBuffer[16];
 
-void Setting::version() {
-    // Lire la version et le numéro de lot depuis l'EEPROM
-    EEPROM.get(0, vers);
-    EEPROM.get(2, lot_num);
+static ParameterManager manager;
 
-    // Affichage de la version et du numéro de lot
-    Serial.print("V : ");
-    Serial.print(vers);
-    Serial.print("\nN : ");
-    Serial.println(lot_num);
-}
-
-// Création d'une instance de la classe Setting
-Setting *configure = new Setting();
-
-static Sensor ssr_gps;
-static Sensor ssr_rtc;
 static Sensor ssr_lum;
 static Sensor ssr_hum;
 static Sensor ssr_tmp;
@@ -358,112 +320,256 @@ static Sensor ssr_prs;
  // Fonctions //
 ///////////////
 
-// GPS //
-bool GPS_mes(unsigned long crnt_time) {
-    // Buffer pour stocker la trame NMEA
-    static char buffer[100];
-    static uint8_t position = 0;
 
-    while (Serial.available()) {
-        char c = Serial.read();
-        
-        // Si on détecte une nouvelle ligne
-        if (c == '\n') {
-            buffer[position] = '\0'; // Termine la chaîne
-            
-            // Vérifie si c'est une trame GNGGA
-            if (strstr(buffer, "$GNGGA") != NULL) {
-                // Parse la trame pour extraire lat et lon
-                parseGGA(buffer, lat, lon);
-                gps_time = crnt_time; // Mettre à jour le temps de la dernière lecture GPS
+// TIMEOUT TIMER //
+ISR(TIMER1_COMPA_vect) {
+    timer1Count++;
+    if (timer1Count >= TIMEOUT) {
+        if packed_data.err_code > 0 {
+            toggleled();
+        }
+        else {
+            switch (crt_ssr) {
+                case 0: // Timeout on GPS
+                    lat = NULL;
+                    lon = NULL;
+                    if (gps_error == 1) {
+                        packed_data.err_code = 1;
+                        toggleled();
+                    } else {
+                        gps_error = 1;
+                    }
+                    break;
+                case 1: // Timeout on RTC
+                    packed_data.secs = NULL;
+                    packed_data.mins = NULL;
+                    packed_data.hours = NULL;
+                    packed_data.days = NULL;
+                    packed_data.month = NULL;
+                    packed_data.year = NULL;
+                    if (rtc_error == 1) {
+                        packed_data.err_code = 2;
+                    } else {
+                        rtc_error = 1;
+                    }
+                    break;
+                case 2: // Timeout on luminosity sensor
+                    if (ssr_lum.error == 1) {
+                        packed_data.err_code = 3;
+                    } else {
+                        ssr_lum.error = 1;
+                    }
+                    break;
+                case 3: // Timeout on temperature sensor
+                    if (ssr_tmp.error == 1) {
+                        packed_data.err_code = 3;
+                    } else {
+                        ssr_tmp.error = 1;
+                    }
+                    break;
+                case 4: // Timeout on pressure sensor
+                    if (ssr_prs.error == 1) {
+                        packed_data.err_code = 3;
+                    } else {
+                        ssr_prs.error = 1;
+                    }
+                    break;
+                case 5: // Timeout on humidity sensor
+                    if (ssr_hum.error == 1) {
+                        packed_data.err_code = 3;
+                    } else {
+                        ssr_hum.error = 1;
+                    }
+                    break;
             }
-            
-            position = 0; // Reset la position pour la prochaine trame
         }
-        // Si on n'a pas encore atteint la fin du buffer
-        else if (position < 99) {
-            buffer[position++] = c;
+        toggleled();
+        timer1Count = 0;
+}
+}
+void timer1_init(void) {
+    cli();                          // Disable interrupts
+    TCCR1A = 0;                     // Set timer mode to CTC
+    TCCR1B = (1 << WGM12);         // Set timer mode to CTC
+    OCR1A = TIMER1_COMPARE_VALUE;   // Set compare value
+    TIMSK1 = (1 << OCIE1A);        // Enable compare match interrupt
+    sei();                          // Enable interrupts
+}
+
+void startTimer1(void) {
+    cli();
+    TCNT1 = 0;
+    timer1Count = 0;
+    TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
+    sei();
+}
+
+void stopTimer1(void) {
+    cli();
+    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
+    sei();
+}
+
+
+// Config function //
+void serialConfig() {
+    if (Serial.available()) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+        
+        if (command == F("RESET")) {
+            manager.reset();
+            return;
+        }
+        if (command == F("VERSION")) {
+            manager.version();
+            return;
         }
         
-        if (dataValid) {
-            turnOffGPS();
-            break;
+        int equalPos = command.indexOf('=');
+        if (equalPos > 0) {
+            String paramName = command.substring(0, equalPos);
+            int16_t value = command.substring(equalPos + 1).toInt();
+            
+            if (manager.save(paramName.c_str(), value)) {
+                Serial.print(F("OK "));
+                Serial.print(manager.get(paramName.c_str()));
+            } else {
+                Serial.println(F("ERR"));
+            }
         }
     }
-    return dataValid;
 }
 
-float convertNMEAToDecimal(float val) {
-    int degrees = (int)(val / 100);
-    float minutes = val - (degrees * 100);
-    return degrees + (minutes / 60.0);
-}
 
-bool parseGGA(char* trame, float &lat, float &lon) {
-    char* ptr = strtok(trame, ",");
-    uint8_t index = 0;
-    
-    while (ptr != NULL) {
-        switch(index) {
-            case 2: // Latitude
-                lat = convertNMEAToDecimal(atof(ptr));
-                break;
-            case 3: // Direction N/S
-                lat_dir = ptr[0];
-                break;
-            case 4: // Longitude
-                lon = convertNMEAToDecimal(atof(ptr));
-                break;
-            case 5: // Direction E/W
-                lon_dir = ptr[0];
-                break;
+// GPS //
+bool isGPSAwake(SoftwareSerial &gpsSerial) {
+    gpsSerial.println("$PCAS06*1B");
+    unsigned long startTime = millis();
+    char buffer[100];
+    int pos = 0;
+
+    while (true) {
+        if (gpsSerial.available()) {
+            char c = gpsSerial.read();
+            if (c == '\n') {
+                buffer[pos] = '\0';
+                if (strstr(buffer, "$PCAS66") != NULL) {
+                    char* ptr = strtok(buffer, ",");
+                    for (int i = 0; i < 3 && ptr != NULL; i++) {
+                        ptr = strtok(NULL, ",");
+                    }
+                    if (ptr != NULL) {
+                        int state = atoi(ptr);
+                        return state == 1; // 1 = active, 0 = sleep
+                    }
+                }
+                pos = 0;
+            } else if (pos < 99) {
+                buffer[pos++] = c;
+            }
         }
-        ptr = strtok(NULL, ",");
-        index++;
     }
-    // Vérification des directions et des coordonnées
-    if ((lat_dir == 'N' || lat_dir == 'S') && (lon_dir == 'E' || lon_dir == 'W') && lat != 0.0 && lon != 0.0) {
-        // Applique la direction à la lat et à la lon
-        if (lon_dir == 'W') lon = -lon;
-        if (lat_dir == 'S') lat = -lat;
-        dataValid = true;
-    }
-    return dataValid;
+    return false; // Assume GPS is in sleep mode on timeout
 }
 
-void turnOffGPS() {
-    // Envoie la commande pour éteindre le GPS
-    Serial.println("$PMTK161,0*28");
+bool getGPSdata() {
+    gpsSerial.begin(9600);
+
+    if (!isGPSAwake(gpsSerial)) {
+        gpsSerial.println("$PCAS04,1*1D");
+        delay(1000); // Wait for GPS to wake up
+    }
+
+    char buffer[100];
+    unsigned short int position = 0;
+
+    while (true) {
+        while (gpsSerial.available()) {
+            char c = gpsSerial.read();
+
+            if (c == '\n') {
+                buffer[position] = '\0';
+
+                if (strstr(buffer, "$GNGGA") != NULL) {
+                    char* ptr = strtok(buffer, ",");
+                    unsigned short int index = 0;
+                    char lat_dir = 'N', lon_dir = 'E';
+                    float lat = 0.0, lon = 0.0;
+
+                    while (ptr != NULL) {
+                        switch(index) {
+                            case 2: // Latitude
+                                lat = atof(ptr);
+                                if (lat != 0) {
+                                    int degrees = (int)(lat / 100);
+                                    float minutes = lat - (degrees * 100);
+                                    lat = degrees + (minutes / 60.0);
+                                }
+                                break;
+                            case 3: // N/S Direction
+                                lat_dir = ptr[0];
+                                break;
+                            case 4: // Longitude
+                                lon = atof(ptr);
+                                if (lon != 0) {
+                                    int degrees = (int)(lon / 100);
+                                    float minutes = lon - (degrees * 100);
+                                    lon = degrees + (minutes / 60.0);
+                                }
+                                break;
+                            case 5: // E/W Direction
+                                lon_dir = ptr[0];
+                                break;
+                        }
+                        ptr = strtok(NULL, ",");
+                        index++;
+                    }
+
+                    if (lat != 0.0 && lon != 0.0) {
+                        if (lon_dir == 'W') lon = -lon;
+                        if (lat_dir == 'S') lat = -lat;
+
+                        latitude = lat;
+                        longitude = lon;
+
+                        gpsSerial.println("$PCAS04,3*1F");
+                        gpsSerial.end();
+
+                        return true;
+                    }
+                }
+
+                position = 0;
+            }
+            else if (position < 99) {
+                buffer[position++] = c;
+            }
+        }
+        delay(10); // Small delay to avoid CPU overload
+    }
+
+    gpsSerial.println("$PCAS04,3*1F");
+    gpsSerial.end();
+
+    return false;
 }
 
-// MESURES //
-void Mesures(bool gps_eco) {
+
+
+// MEASURES //
+void Measures(bool gps_eco) {
     // Variable pour suivre l'état des mesures
-    dataValid = false;
-
+    crt_ssr = 0;
     // GPS //
-    if (gps_eco) {
-        if (gps_mes) {
-            // Appel de la fonction pour prendre la mesure GPS
-            GPS_mes(crnt_time); 
-        }
-        // Inverser la prise de mesure pour la prochaine fois
-        gps_mes = !gps_mes;
-    } else {
-        GPS_mes(crnt_time);
+    startTimer1()
+    getGPSdata()
+    if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
+        packed_data.err_code = 4;
+        ToggleLED();
     }
-    // Vérification si le GPS a été mis à jour dans les 30 secondes
-    if (crnt_time - gps_time >= 30000 && !dataValid) {
-        if (ssr_gps.error == 0) {
-            ssr_gps.error = 1; // 30 secondes sans mise à jour GPS
-            lat = 0;
-            lon = 0;
-        } else {
-            noInterrupts();
-            err_code = 2;
-            ssr_gps.error = 0;
-        }
-    }
+    stopTimer1()
+
 
     // HORLOGE //
     // Tableau des jours de la semaine stocké en mémoire programme
@@ -510,8 +616,8 @@ void Mesures(bool gps_eco) {
             year = 0;
             week_day = '\0';
         } else {
-            noInterrupts();
-            err_code = 1;
+            
+            packed_data.err_code = 1;
             ssr_rtc.error = 0;
         }
     }
@@ -524,17 +630,17 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de luminosité
         ssr_lum.Update(lum);
     } else {
-        noInterrupts();
+        
         // Erreur si la luminosité est hors plage
-        err_code = 4;
+        packed_data.err_code = 4;
     }
     // Vérification si le capteur de luminosité a été mis à jour dans les 30 secondes
     if (crnt_time - lum_time >= 30000 && lum == 0) {
         if (ssr_lum.error == 0) {
             ssr_lum.error = 1; // 30 secondes sans mise à jour
         } else {
-            noInterrupts();
-            err_code = 3;
+            
+            packed_data.err_code = 3;
             ssr_lum.error = 0;
         }
     }
@@ -547,17 +653,17 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur d'humidité
         ssr_hum.Update(hum);
     } else {
-        noInterrupts();
+        
         // Erreur si la luminosité est hors plage
-        err_code = 4;
+        packed_data.err_code = 4;
     }
     // Vérification si le capteur d'humidité a été mis à jour dans les 30 secondes
     if (crnt_time - hum_time >= 30000 && hum == 0) {
         if (ssr_hum.error == 0) {
             ssr_hum.error = 1; // 30 secondes sans mise à jour
         } else {
-            noInterrupts();
-            err_code = 3;
+            
+            packed_data.err_code = 3;
             ssr_hum.error = 0;
         }
     }
@@ -572,17 +678,17 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de pression
         ssr_prs.Update(prs);
     } else {
-        noInterrupts();
+        
         // Erreur si la pression est hors plage
-        err_code = 4;
+        packed_data.err_code = 4;
     }
     // Vérification si le capteur de pression a été mis à jour dans les 30 secondes
     if (crnt_time - prs_time >= 30000 && prs == 0) {
         if (ssr_prs.error == 0) {
             ssr_prs.error = 1; // 30 secondes sans mise à jour
         } else {
-            noInterrupts();
-            err_code = 3;
+            
+            packed_data.err_code = 3;
             ssr_prs.error = 0;
         }
     }
@@ -597,23 +703,26 @@ void Mesures(bool gps_eco) {
         // Mise à jour de la valeur de température
         ssr_tmp.Update(tmp);
     } else {
-        noInterrupts();
+        
         // Erreur si la température est hors plage
-        err_code = 4;
+        packed_data.err_code = 4;
     }
     // Vérification si le capteur de température a été mis à jour dans les 30 secondes
     if (crnt_time - tmp_time >= 30000 && tmp == 0) {
         if (ssr_tmp.error == 0) {
             ssr_tmp.error = 1; // 30 secondes sans mise à jour
         } else {
-            noInterrupts();
-            err_code = 3;
+            
+            packed_data.err_code = 3;
             ssr_tmp.error = 0;
         }
     }
 }
 
+
+
 // LED //
+
 void clk(void) {
     digitalWrite(_clk_pin, LOW);
     delayMicroseconds(_CLK_PULSE_DELAY);
@@ -647,9 +756,7 @@ void sendColor(byte red, byte green, byte blue) {
 void Init_LED(byte clk_pin, byte data_pin) {
     _clk_pin = clk_pin;
     _data_pin = data_pin;
-    _current_red = 0;
-    _current_green = 0;
-    _current_blue = 0;
+
     
     pinMode(_clk_pin, OUTPUT);
     pinMode(_data_pin, OUTPUT);
@@ -657,10 +764,7 @@ void Init_LED(byte clk_pin, byte data_pin) {
 }
 
 void setColorRGB(byte red, byte green, byte blue) {
-    _current_red = red;
-    _current_green = green;
-    _current_blue = blue;
-    
+
     // Send data frame prefix
     for (byte i = 0; i < 4; i++) {
         sendByte(0x00);
@@ -681,12 +785,12 @@ void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer)
 }
 
 void toggleLED() {
-    if (err_code > 0) {
+    if (packed_data.err_code > 0) {
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
 
-        switch (err_code) {
+        switch (packed_data.err_code) {
             case 1: // RTC error
                 color2[0] = 0;
                 color2[1] = 0;
@@ -736,69 +840,6 @@ void toggleLED() {
 }
 
 // MODES //
-void Command_set(String fct) {
-    // Vérifie si la commande est pour définir une valeur
-    if (fct.startsWith("set ")) {
-        // Commande pour définir une valeur
-        uint8_t num_par = fct.substring(4, fct.indexOf(' ', 4)).toInt();
-        short int val_par = fct.substring(fct.indexOf(' ', 4) + 1).toInt();
-        configure->value(num_par, val_par);
-    } 
-    // Vérifie si la commande est pour définir l'heure
-    else if (fct.startsWith("clock ")) {
-        // Commande pour définir l'heure
-        uint8_t hour = fct.substring(6, fct.indexOf(':')).toInt(); 
-        uint8_t min = fct.substring(fct.indexOf(':') + 1, fct.indexOf(':', fct.indexOf(':') + 1)).toInt(); 
-        uint8_t sec = fct.substring(fct.lastIndexOf(':') + 1).toInt(); 
-        configure->clock(hour, min, sec);
-    } 
-    // Vérifie si la commande est pour définir la date
-    else if (fct.startsWith("date ")) {
-        // Commande pour définir la date
-        uint8_t month = fct.substring(5, fct.indexOf('/')).toInt(); 
-        uint8_t day = fct.substring(fct.indexOf('/') + 1, fct.lastIndexOf('/')).toInt(); 
-        unsigned short int year = fct.substring(fct.lastIndexOf('/') + 1).toInt(); 
-        configure->date(month, day, year);
-    } 
-    // Vérifie si la commande est pour définir le jour
-    else if (fct.startsWith("day ")) {
-        // Commande pour définir le jour
-        String week_day = fct.substring(4, fct.indexOf(' ', 4));
-        configure->day(week_day);
-    } 
-    // Vérifie si la commande est pour réinitialiser les paramètres
-    else if (fct.equals("reset")) {
-        configure->reset();
-        Serial.println("Reset ok");
-    } 
-    // Vérifie si la commande est pour afficher la version
-    else if (fct.equals("version")) {
-        configure->version();
-    } 
-    // Si aucune commande n'est reconnue
-    else {
-        Serial.println("Commande inconnue");
-    }
-}
-
-void Configuration() {
-    Serial.println("Configuration :");
-    while (true) {
-        if (Serial.available() > 0) {
-            // Lecture de la commande en entrée série
-            String fct = Serial.readStringUntil('\n');
-            // Traitement de la commande
-            Command_set(fct);
-        } else {
-            inact_time = crnt_time;
-        }
-        while (Serial.available() == 0) {
-            if (crnt_time - inact_time > 1800000) {
-                return;
-            }
-        }
-    }
-}
 
 void Standard() {
     if (mode = false) {
@@ -909,7 +950,7 @@ void create_new_file() {
     sprintf(file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
     mes_file = SD.open(file_name, FILE_WRITE);
     if (!mes_file) {
-        err_code = 6;
+        packed_data.err_code = 6;
         return;
     }
 }
@@ -976,15 +1017,15 @@ void setup() {
     pinMode(grn_btn_pin, INPUT_PULLUP);
 
     if (!rtc.begin()) {
-        noInterrupts();
-        err_code = 1;
+        
+        packed_data.err_code = 1;
         toggleLED();
         while (true);
     }
 
     if (!bme.begin()) {
-        noInterrupts();
-        err_code = 1;
+        
+        packed_data.err_code = 1;
         toggleLED();
         while (1);
     }
@@ -996,7 +1037,7 @@ void setup() {
 
     // Initialiser la carte SD
     if (!SD.begin(chip_slct)) {
-        err_code = 6;
+        packed_data.err_code = 6;
         return;
     }
 }
