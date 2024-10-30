@@ -1,10 +1,145 @@
 // BME280_Mini.cpp
 #include "BME280_Mini.h"
 
+// Constructeur
 BME280_Mini::BME280_Mini(uint8_t sda, uint8_t scl, uint8_t addr) 
-    : sda_pin(sda), scl_pin(scl), addr(addr) {}
+    : sda_pin(sda), scl_pin(scl), addr(addr), temp_read(false) {}
 
-void BME280_Mini::i2c_start() {
+// Fonctions principales
+bool BME280_Mini::init() {
+    // Configure les pins
+    pinMode(sda_pin, OUTPUT);
+    pinMode(scl_pin, OUTPUT);
+    digitalWrite(sda_pin, HIGH);
+    digitalWrite(scl_pin, HIGH);
+    delay(100);  // Délai de stabilisation
+    
+    // Vérifie l'ID du capteur
+    uint8_t id;
+    if (!readRegisters(REG_CHIPID, &id, 1) || id != CHIP_ID) {
+        return false;
+    }
+    
+    // Reset le capteur
+    if (!reset()) {
+        return false;
+    }
+    delay(10);  // Attente après reset
+    
+    // Lecture données de calibration
+    if (!readCalibrationData()) {
+        return false;
+    }
+    
+    // Configuration du capteur
+    // Humidité x1, Température x1, Pression x1, Mode normal
+    if (!writeRegister(REG_CTRL_HUM, 0x01) ||    // Humidité x1
+        !writeRegister(REG_CONFIG, 0x00) ||      // Pas de filtrage
+        !writeRegister(REG_CTRL_MEAS, 0x27)) {   // Temp x1, Press x1, Normal mode
+        return false;
+    }
+    
+    return true;
+}
+
+void BME280_Mini::disconnect() {
+    writeRegister(REG_CTRL_MEAS, 0x00);  // Mode sleep
+    digitalWrite(sda_pin, LOW);
+    digitalWrite(scl_pin, LOW);
+    pinMode(sda_pin, INPUT);
+    pinMode(scl_pin, INPUT);
+}
+
+bool BME280_Mini::isConnected() {
+    uint8_t id;
+    return readRegisters(REG_CHIPID, &id, 1) && (id == CHIP_ID);
+}
+
+// Fonctions de lecture
+float BME280_Mini::readTemperature() {
+    uint8_t buffer[3];
+    if (!readRegisters(REG_TEMP, buffer, 3)) {
+        return -999.0f;
+    }
+    
+    int32_t adc_T = ((buffer[0] << 12) | (buffer[1] << 4) | (buffer[2] >> 4));
+    int32_t t_fine;
+    float temp = compensateTemp(adc_T, t_fine) / 100.0f;
+    
+    // Sauvegarde pour les autres lectures
+    last_t_fine = t_fine;
+    temp_read = true;
+    
+    return temp + 167.0f;
+}
+
+float BME280_Mini::readPressure() {
+    // Vérifie si on a besoin de lire la température d'abord
+    if (!temp_read) {
+        readTemperature();
+    }
+    
+    uint8_t buffer[3];
+    if (!readRegisters(REG_PRESS, buffer, 3)) {
+        return -999.0f;
+    }
+    
+    int32_t adc_P = ((buffer[0] << 12) | (buffer[1] << 4) | (buffer[2] >> 4));
+    float pressure = compensatePress(adc_P, last_t_fine);
+    
+    return pressure - 14300.0f;
+}
+
+uint8_t BME280_Mini::readHumidity() {
+    // Vérifie si on a besoin de lire la température d'abord
+    if (!temp_read) {
+        readTemperature();
+    }
+    
+    uint8_t buffer[2];
+    if (!readRegisters(REG_HUM, buffer, 2)) {
+        return 0xFF;
+    }
+    
+    int32_t adc_H = (buffer[0] << 8) | buffer[1];
+    uint8_t humidity = compensateHum(adc_H, last_t_fine);
+    
+    return humidity + 9;
+}
+
+bool BME280_Mini::readAll(Data& data) {
+    uint8_t buffer[8];
+    if (!readRegisters(REG_PRESS, buffer, 8)) {
+        return false;
+    }
+    
+    int32_t adc_P = ((buffer[0] << 12) | (buffer[1] << 4) | (buffer[2] >> 4));
+    int32_t adc_T = ((buffer[3] << 12) | (buffer[4] << 4) | (buffer[5] >> 4));
+    int32_t adc_H = (buffer[6] << 8) | buffer[7];
+    
+    int32_t t_fine;
+    data.temperature = compensateTemp(adc_T, t_fine) / 100.0f + 167.0f;
+    data.pressure = compensatePress(adc_P, t_fine) - 14300.0f;
+    data.humidity = compensateHum(adc_H, t_fine) + 9;
+    
+    return true;
+}
+
+// Fonctions de contrôle d'alimentation
+bool BME280_Mini::sleep() {
+    return writeRegister(REG_CTRL_MEAS, 0x24);  // Mode sleep
+}
+
+bool BME280_Mini::wake() {
+    return writeRegister(REG_CTRL_MEAS, 0x27);  // Mode normal
+}
+
+bool BME280_Mini::reset() {
+    return writeRegister(REG_RESET, 0xB6);  // Valeur magique pour reset
+}
+
+// Communication I2C bas niveau
+void BME280_Mini::i2cStart() {
     digitalWrite(sda_pin, HIGH);
     digitalWrite(scl_pin, HIGH);
     delayMicroseconds(4);
@@ -13,7 +148,7 @@ void BME280_Mini::i2c_start() {
     digitalWrite(scl_pin, LOW);
 }
 
-void BME280_Mini::i2c_stop() {
+void BME280_Mini::i2cStop() {
     digitalWrite(sda_pin, LOW);
     delayMicroseconds(4);
     digitalWrite(scl_pin, HIGH);
@@ -22,7 +157,7 @@ void BME280_Mini::i2c_stop() {
     delayMicroseconds(4);
 }
 
-bool BME280_Mini::i2c_write(uint8_t data) {
+bool BME280_Mini::i2cWrite(uint8_t data) {
     for (uint8_t i = 0; i < 8; i++) {
         digitalWrite(sda_pin, (data & 0x80) ? HIGH : LOW);
         data <<= 1;
@@ -31,8 +166,8 @@ bool BME280_Mini::i2c_write(uint8_t data) {
         delayMicroseconds(2);
         digitalWrite(scl_pin, LOW);
     }
-
-    // Release SDA for ACK
+    
+    // Lecture ACK
     pinMode(sda_pin, INPUT_PULLUP);
     delayMicroseconds(2);
     digitalWrite(scl_pin, HIGH);
@@ -40,10 +175,11 @@ bool BME280_Mini::i2c_write(uint8_t data) {
     bool ack = (digitalRead(sda_pin) == LOW);
     digitalWrite(scl_pin, LOW);
     pinMode(sda_pin, OUTPUT);
+    
     return ack;
 }
 
-uint8_t BME280_Mini::i2c_read(bool ack) {
+uint8_t BME280_Mini::i2cRead(bool ack) {
     uint8_t data = 0;
     pinMode(sda_pin, INPUT_PULLUP);
     
@@ -66,44 +202,37 @@ uint8_t BME280_Mini::i2c_read(bool ack) {
     return data;
 }
 
-bool BME280_Mini::writeReg(uint8_t reg, uint8_t value) {
-    i2c_start();
-    if (!i2c_write(addr << 1)) { i2c_stop(); return false; }
-    if (!i2c_write(reg)) { i2c_stop(); return false; }
-    if (!i2c_write(value)) { i2c_stop(); return false; }
-    i2c_stop();
+// Fonctions de communication
+bool BME280_Mini::writeRegister(uint8_t reg, uint8_t value) {
+    i2cStart();
+    if (!i2cWrite(addr << 1)) { i2cStop(); return false; }
+    if (!i2cWrite(reg)) { i2cStop(); return false; }
+    if (!i2cWrite(value)) { i2cStop(); return false; }
+    i2cStop();
     return true;
 }
 
-bool BME280_Mini::readRegs(uint8_t reg, uint8_t* buffer, uint8_t len) {
-    i2c_start();
-    if (!i2c_write(addr << 1)) { i2c_stop(); return false; }
-    if (!i2c_write(reg)) { i2c_stop(); return false; }
-    i2c_start();
-    if (!i2c_write((addr << 1) | 1)) { i2c_stop(); return false; }
+bool BME280_Mini::readRegisters(uint8_t reg, uint8_t* buffer, uint8_t len) {
+    i2cStart();
+    if (!i2cWrite(addr << 1)) { i2cStop(); return false; }
+    if (!i2cWrite(reg)) { i2cStop(); return false; }
+    i2cStart();
+    if (!i2cWrite((addr << 1) | 1)) { i2cStop(); return false; }
     
     for (uint8_t i = 0; i < len; i++) {
-        buffer[i] = i2c_read(i < (len-1));
+        buffer[i] = i2cRead(i < (len-1));
     }
     
-    i2c_stop();
+    i2cStop();
     return true;
 }
 
-bool BME280_Mini::begin() {
-    // Configure pins
-    pinMode(sda_pin, OUTPUT);
-    pinMode(scl_pin, OUTPUT);
-    digitalWrite(sda_pin, HIGH);
-    digitalWrite(scl_pin, HIGH);
-    
-    // Verify chip ID
-    uint8_t id;
-    if (!readRegs(0xD0, &id, 1) || id != 0x60) return false;
-    
-    // Read calibration data
+// Lecture des données de calibration
+bool BME280_Mini::readCalibrationData() {
     uint8_t buffer[24];
-    if (!readRegs(0x88, buffer, 24)) return false;
+    
+    // Lecture première partie calibration (0x88-0xA1)
+    if (!readRegisters(0x88, buffer, 24)) return false;
     
     cal.T1 = (buffer[1] << 8) | buffer[0];
     cal.T2 = (buffer[3] << 8) | buffer[2];
@@ -117,44 +246,18 @@ bool BME280_Mini::begin() {
     cal.P7 = (buffer[19] << 8) | buffer[18];
     cal.P8 = (buffer[21] << 8) | buffer[20];
     cal.P9 = (buffer[23] << 8) | buffer[22];
-
-    if (!readRegs(0xA1, &cal.H1, 1)) return false;
     
-    if (!readRegs(0xE1, buffer, 7)) return false;
+    // Lecture H1 (0xA1)
+    if (!readRegisters(0xA1, &cal.H1, 1)) return false;
+    
+    // Lecture deuxième partie calibration (0xE1-0xE7)
+    if (!readRegisters(0xE1, buffer, 7)) return false;
+    
     cal.H2 = (buffer[1] << 8) | buffer[0];
     cal.H3 = buffer[2];
     cal.H4 = (buffer[3] << 4) | (buffer[4] & 0x0F);
     cal.H5 = (buffer[5] << 4) | (buffer[4] >> 4);
     cal.H6 = buffer[6];
-
-    // Configure sensor
-    if (!writeReg(0xF2, 0x01)) return false; // ctrl_hum
-    if (!writeReg(0xF4, 0x27)) return false; // ctrl_meas
-    if (!writeReg(0xF5, 0x00)) return false; // config
-    
-    return true;
-}
-
-bool BME280_Mini::sleep() {
-    return writeReg(0xF4, 0x24); // Sleep mode
-}
-
-bool BME280_Mini::wake() {
-    return writeReg(0xF4, 0x27); // Normal mode
-}
-
-bool BME280_Mini::read(Data& data) {
-    uint8_t buffer[8];
-    if (!readRegs(0xF7, buffer, 8)) return false;
-    
-    int32_t t_fine;
-    int32_t adc_T = ((buffer[3] << 12) | (buffer[4] << 4) | (buffer[5] >> 4));
-    int32_t adc_P = ((buffer[0] << 12) | (buffer[1] << 4) | (buffer[2] >> 4));
-    int32_t adc_H = (buffer[6] << 8) | buffer[7];
-    
-    data.temperature = compensateTemp(adc_T, t_fine) / 100.0 + 167;
-    data.pressure = compensatePress(adc_P, t_fine) - 14300;
-    data.humidity = compensateHum(adc_H, t_fine) + 9;
     
     return true;
 }
@@ -174,6 +277,7 @@ float BME280_Mini::compensatePress(int32_t adc_P, int32_t t_fine) {
     var2 = var2 + (((int64_t)cal.P4) << 35);
     var1 = ((var1 * var1 * (int64_t)cal.P3) >> 8) + ((var1 * (int64_t)cal.P2) << 12);
     var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)cal.P1) >> 33;
+    
     if (var1 == 0) return 0;
     
     int64_t p = 1048576 - adc_P;
@@ -181,6 +285,7 @@ float BME280_Mini::compensatePress(int32_t adc_P, int32_t t_fine) {
     var1 = (((int64_t)cal.P9) * (p >> 13) * (p >> 13)) >> 25;
     var2 = (((int64_t)cal.P8) * p) >> 19;
     p = ((p + var1 + var2) >> 8) + (((int64_t)cal.P7) << 4);
+    
     return (float)p / 256.0f;
 }
 
@@ -195,5 +300,8 @@ uint8_t BME280_Mini::compensateHum(int32_t adc_H, int32_t t_fine) {
                    ((int32_t)cal.H1)) >> 4));
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+    
     return (uint8_t)((v_x1_u32r >> 12) / 1024);
 }
+
+

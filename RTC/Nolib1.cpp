@@ -113,6 +113,13 @@ void writeRTCRegister(uint8_t reg, uint8_t value) {
     // Stop condition
     TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
 }
+void deinitI2C() {
+    // Disable TWI
+    TWCR = 0;
+    // Set SDA and SCL pins to input mode
+    DDRC &= ~((1 << PINC4) | (1 << PINC5));
+    PORTC &= ~((1 << PINC4) | (1 << PINC5));
+}
 
 void setTime(uint8_t hour, uint8_t minute, uint8_t second) {
     writeRTCRegister(SECONDS_REG, decToBcd(second));
@@ -120,19 +127,31 @@ void setTime(uint8_t hour, uint8_t minute, uint8_t second) {
     writeRTCRegister(HOURS_REG, decToBcd(hour));
 }
 
-void setDate(uint8_t day, uint8_t date, uint8_t month, uint8_t year) {
-    writeRTCRegister(DAY_REG, decToBcd(day));
+void setDate(uint8_t date, uint8_t month, uint8_t year) {
     writeRTCRegister(DATE_REG, decToBcd(date));
     writeRTCRegister(MONTH_REG, decToBcd(month));
     writeRTCRegister(YEAR_REG, decToBcd(year));
 }
+
+void setDay(uint8_t day) {
+    writeRTCRegister(DAY_REG, decToBcd(day));
+}
+
+const char* const week_days[7] PROGMEM = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
+
 void setup() {
     Serial.begin(9600);
     initI2C();
+/*  setDate(30,10,24);
+    setTime(17,26,4);
+    setDay(3); */
+
 }
 
 void loop() {
     DateTime now = readDateTime();
+    Serial.print(week_days[1]);
+    Serial.print(" ");
     Serial.print(now.date);
     Serial.print("/");
     Serial.print(now.month);

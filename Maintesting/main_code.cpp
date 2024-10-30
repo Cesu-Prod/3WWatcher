@@ -39,18 +39,12 @@ extern "C" void __attribute__((weak)) yield(void) {}  // Acompil specific line, 
  // Global Variables and Constants //
 ////////////////////////////////////
 
-struct __attribute__((packed)) {
-    uint8_t hours : 5;      // 6 bits
-    uint8_t mins : 6;       // 6 bits
-    uint8_t secs : 6;       // 5 bits
-    uint8_t day : 5;        // 5 bits
-    uint8_t month : 4;      // 4 bits
-    uint8_t month : 7;      // 7 bits
-    uint8_t err_code : 3;   // 3 bits
-    uint8_t mode : 2;       // 2 bits
-} packed_data;              // Total: 40 bits, will occupy 40 bits. To call, packed_data.name, since it is stored in the packed data space to avoid losing bits. It saves 32 ram bits.
 
+uint8_t err_code;   // 3 bits
+uint8_t mode;       // 2 bits
 uint8_t timer1Count = 0;
+const char* const week_days[7] PROGMEM = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
+
 
 // RTC //
 RTC_DS1307 rtc;                             // RTC, us ing the DS1307 chip and wire module.
@@ -91,6 +85,9 @@ byte _data_pin;
 #ifndef WWWBATCH
 #define WWWBATCH "NaN"
 #endif
+
+#define lumin_pin A0
+pinMode(A0, INPUT)
 
 
 
@@ -163,7 +160,15 @@ short int Sensor::Average() {
     }
 }
 
-// Structure bits à bits pour les flags
+static Sensor ssr_lum;
+static Sensor ssr_hum;
+static Sensor ssr_tmp;
+static Sensor ssr_prs;
+
+
+// CONFIG //
+
+// Bit-field structure for feature flags
 struct FeatureFlags {
     uint8_t lumin : 1;
     uint8_t temp_air : 1;
@@ -172,14 +177,14 @@ struct FeatureFlags {
     uint8_t eco : 1;
 };
 
-// Structure optimisée pour les paramètres
+// Optimized structure for parameters
 struct Parameter {
     const __FlashStringHelper* name;
     uint8_t address;
     int16_t defaultValue;
 };
 
-// Définition des chaînes en flash
+// Define flash strings
 #define DECLARE_FLASH_STRING(name, value) const char name[] PROGMEM = value
 
 DECLARE_FLASH_STRING(LUMIN_STR, "LUMIN");
@@ -199,7 +204,7 @@ DECLARE_FLASH_STRING(FILE_SIZE_STR, "FILE_MAX_SIZE");
 DECLARE_FLASH_STRING(ECO_STR, "ECO");
 DECLARE_FLASH_STRING(TIMEOUT_STR, "TIMEOUT");
 
-// Table des limites min/max en flash
+// Parameter limits in flash
 const PROGMEM int16_t PARAM_LIMITS[] = {
     0, 1,        // LUMIN
     0, 1023,     // LUMIN_LOW
@@ -215,7 +220,7 @@ const PROGMEM int16_t PARAM_LIMITS[] = {
     300, 1100,   // PRESSURE_MAX
     5, 120,      // LOG_INTERVAL
     1024, 8192,  // FILE_MAX_SIZE
-    0, 1,         // ECO
+    0, 1,        // ECO
     1, 60        // TIMEOUT
 };
 
@@ -255,7 +260,6 @@ public:
         return -327; // Error if not found
     }
 
-
     bool save(const char* paramName, int16_t value) {
         Parameter param;
         int16_t index = findParam(paramName, param);
@@ -271,6 +275,7 @@ public:
         }
         return false;
     }
+
     void reset() {
         Parameter param;
         for (uint8_t i = 0; i < PARAM_COUNT; i++) {
@@ -279,6 +284,7 @@ public:
         }
         Serial.println(F("Reset OK"));
     }
+
     void version() {
         Serial.print(F("3WWatcher v"));
         Serial.print(WWWVERSION);
@@ -310,10 +316,32 @@ char ParameterManager::stringBuffer[16];
 
 static ParameterManager manager;
 
-static Sensor ssr_lum;
-static Sensor ssr_hum;
-static Sensor ssr_tmp;
-static Sensor ssr_prs;
+
+
+// RTC //
+struct DateTime {
+    uint8_t second;
+    uint8_t minute;
+    uint8_t hour;
+    uint8_t day;
+    uint8_t date;
+    uint8_t month;
+    uint8_t year;
+};
+
+
+// DS1307 I2C address
+#define DS1307_ADDRESS 0x68
+
+// Register addresses
+#define SECONDS_REG 0x00
+#define MINUTES_REG 0x01
+#define HOURS_REG 0x02
+#define DAY_REG 0x03
+#define DATE_REG 0x04
+#define MONTH_REG 0x05
+#define YEAR_REG 0x06
+#define CONTROL_REG 0x07
 
 
   ///////////////
@@ -325,7 +353,7 @@ static Sensor ssr_prs;
 ISR(TIMER1_COMPA_vect) {
     timer1Count++;
     if (timer1Count >= TIMEOUT) {
-        if packed_data.err_code > 0 {
+        if err_code > 0 {
             toggleled();
         }
         else {
@@ -334,49 +362,49 @@ ISR(TIMER1_COMPA_vect) {
                     lat = NULL;
                     lon = NULL;
                     if (gps_error == 1) {
-                        packed_data.err_code = 1;
+                        err_code = 1;
                         toggleled();
                     } else {
                         gps_error = 1;
                     }
                     break;
                 case 1: // Timeout on RTC
-                    packed_data.secs = NULL;
-                    packed_data.mins = NULL;
-                    packed_data.hours = NULL;
-                    packed_data.days = NULL;
-                    packed_data.month = NULL;
-                    packed_data.year = NULL;
+                    now.secs = NULL;
+                    now.mins = NULL;
+                    now.hours = NULL;
+                    now.days = NULL;
+                    now.month = NULL;
+                    now.year = NULL;
                     if (rtc_error == 1) {
-                        packed_data.err_code = 2;
+                        err_code = 2;
                     } else {
                         rtc_error = 1;
                     }
                     break;
                 case 2: // Timeout on luminosity sensor
                     if (ssr_lum.error == 1) {
-                        packed_data.err_code = 3;
+                        err_code = 3;
                     } else {
                         ssr_lum.error = 1;
                     }
                     break;
                 case 3: // Timeout on temperature sensor
                     if (ssr_tmp.error == 1) {
-                        packed_data.err_code = 3;
+                        err_code = 3;
                     } else {
                         ssr_tmp.error = 1;
                     }
                     break;
                 case 4: // Timeout on pressure sensor
                     if (ssr_prs.error == 1) {
-                        packed_data.err_code = 3;
+                        err_code = 3;
                     } else {
                         ssr_prs.error = 1;
                     }
                     break;
                 case 5: // Timeout on humidity sensor
                     if (ssr_hum.error == 1) {
-                        packed_data.err_code = 3;
+                        err_code = 3;
                     } else {
                         ssr_hum.error = 1;
                     }
@@ -408,6 +436,104 @@ void stopTimer1(void) {
     cli();
     TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
     sei();
+}
+
+// RTC //
+
+// Convert BCD to decimal
+uint8_t bcdToDec(uint8_t bcd) {
+    return ((bcd / 16) * 10) + (bcd % 16);
+}
+
+// Initialize I2C
+void initI2C() {
+    TWSR = 0;
+    TWBR = ((F_CPU/100000)-16)/2;
+    TWCR = (1 << TWEN);
+}
+
+uint8_t readRTCRegister(uint8_t reg) {
+    // Start condition
+    TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send device address for write
+    TWDR = DS1307_ADDRESS << 1;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send register address
+    TWDR = reg;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Repeated start
+    TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send device address for read
+    TWDR = (DS1307_ADDRESS << 1) | 0x01;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Read data with NACK
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    uint8_t data = TWDR;
+
+    // Stop condition
+    TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
+
+    return data;
+}
+
+
+// Convert decimal to BCD
+uint8_t decToBcd(uint8_t dec) {
+    return ((dec / 10) << 4) + (dec % 10);
+}
+
+DateTime readDateTime() {
+    DateTime dt;
+    dt.second = bcdToDec(readRTCRegister(SECONDS_REG) & 0x7F);
+    dt.minute = bcdToDec(readRTCRegister(MINUTES_REG));
+    dt.hour = bcdToDec(readRTCRegister(HOURS_REG) & 0x3F);
+    dt.day = bcdToDec(readRTCRegister(DAY_REG));
+    dt.date = bcdToDec(readRTCRegister(DATE_REG));
+    dt.month = bcdToDec(readRTCRegister(MONTH_REG));
+    dt.year = bcdToDec(readRTCRegister(YEAR_REG));
+    return dt;
+}
+void writeRTCRegister(uint8_t reg, uint8_t value) {
+    // Start condition
+    TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send device address for write
+    TWDR = DS1307_ADDRESS << 1;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send register address
+    TWDR = reg;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Send data
+    TWDR = value;
+    TWCR = (1<<TWINT) | (1<<TWEN);
+    while (!(TWCR & (1<<TWINT)));
+
+    // Stop condition
+    TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
+}
+void deinitI2C() {
+    // Disable TWI
+    TWCR = 0;
+    // Set SDA and SCL pins to input mode
+    DDRC &= ~((1 << PINC4) | (1 << PINC5));
+    PORTC &= ~((1 << PINC4) | (1 << PINC5));
 }
 
 
@@ -565,87 +691,45 @@ void Measures(bool gps_eco) {
     startTimer1()
     getGPSdata()
     if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
-        packed_data.err_code = 4;
+        err_code = 4;
         ToggleLED();
     }
     stopTimer1()
 
+    crt_ssr = 1;
 
-    // HORLOGE //
-    // Tableau des jours de la semaine stocké en mémoire programme
-    const char week_days[] PROGMEM = "SUNMONTUEWEDTHUFRISAM";
-
-    // Récupération de la date et de l'heure actuelle
-    static DateTime now = rtc.now(); // Variable statique pour réduire la pile
-    rtc_time = crnt_time; // Mettre à jour le temps de la dernière lecture RTC
-
-    // Récupération des composantes de l'heure
-    uint8_t hour = now.hour(); // Heure
-    uint8_t minute = now.minute(); // Minute
-    uint8_t second = now.second(); // Seconde
-
-    // Récupération des composantes de la date
-    uint8_t day = now.day(); // Jour du mois
-    uint8_t month = now.month(); // Mois
-    unsigned short int year = now.year(); // Année
-
-    // Vérification des valeurs récupérées
-    if (hour < 24 && minute < 60 && second < 60 && day > 0 && day <= 31 && month > 0 && month <= 12) {
-        dataValid = true; // Les données sont valides
-    } else {
-        dataValid = false; // Les données ne sont pas valides
+    // RTC //
+    startTimer1()
+    DateTime now = readDateTime();
+    if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
+        err_code = 4;
+        ToggleLED();
     }
-
-    // Récupération du jour de la semaine
-    uint8_t wd_index = now.dayOfTheWeek();
-    char week_day;
-
-    // Lecture du jour de la semaine
-    for (uint8_t i = 0; i < 3; i++) {
-        week_day = (char)pgm_read_byte(&week_days[wd_index + i]);
+    delay(2000);
+    DateTime now2 = readDateTime();
+    if (now2.second == now.second){
+        err_code = 4;
+        ToggleLED();
     }
-    // Vérification si la RTC a été mise à jour dans les 30 secondes
-    if (crnt_time - rtc_time >= 30000 && !dataValid) {
-        if (ssr_rtc.error == 0) {
-            ssr_rtc.error = 1; // 30 secondes sans mise à jour RTC
-            hour = 0;
-            minute = 0;
-            second = 0;
-            day = 0;
-            month = 0;
-            year = 0;
-            week_day = '\0';
-        } else {
-            
-            packed_data.err_code = 1;
-            ssr_rtc.error = 0;
-        }
-    }
+    stopTimer1()
 
-    // LUMINOSITÉ //
-    unsigned short int lum = 0;
-    lum = analogRead(A0);
-    // Vérification si la luminosité est dans la plage autorisée
-    if (lum < param[4].min && lum > param[4].max) {
-        // Mise à jour de la valeur de luminosité
+    crt_ssr = 1;
+    
+
+    // LUMINOSITY //
+    startTimer1()
+    unsigned int lum = 0;
+    lum analogRead(lumin_pin) 
+    if (lum >= 0 && lum <= 1023) {
         ssr_lum.Update(lum);
     } else {
-        
-        // Erreur si la luminosité est hors plage
-        packed_data.err_code = 4;
+        err_code = 4;
+        ToggleLED();      
     }
-    // Vérification si le capteur de luminosité a été mis à jour dans les 30 secondes
-    if (crnt_time - lum_time >= 30000 && lum == 0) {
-        if (ssr_lum.error == 0) {
-            ssr_lum.error = 1; // 30 secondes sans mise à jour
-        } else {
-            
-            packed_data.err_code = 3;
-            ssr_lum.error = 0;
-        }
-    }
+    stopTimer1()
 
-    // HUMIDITÉ //
+
+    // HUMIDITY //
     unsigned short int hum = 0;
     hum = bme.readHumidity();
     // Vérification si l'humidité est dans la plage autorisée
@@ -655,7 +739,7 @@ void Measures(bool gps_eco) {
     } else {
         
         // Erreur si la luminosité est hors plage
-        packed_data.err_code = 4;
+        err_code = 4;
     }
     // Vérification si le capteur d'humidité a été mis à jour dans les 30 secondes
     if (crnt_time - hum_time >= 30000 && hum == 0) {
@@ -663,7 +747,7 @@ void Measures(bool gps_eco) {
             ssr_hum.error = 1; // 30 secondes sans mise à jour
         } else {
             
-            packed_data.err_code = 3;
+            err_code = 3;
             ssr_hum.error = 0;
         }
     }
@@ -680,7 +764,7 @@ void Measures(bool gps_eco) {
     } else {
         
         // Erreur si la pression est hors plage
-        packed_data.err_code = 4;
+        err_code = 4;
     }
     // Vérification si le capteur de pression a été mis à jour dans les 30 secondes
     if (crnt_time - prs_time >= 30000 && prs == 0) {
@@ -688,7 +772,7 @@ void Measures(bool gps_eco) {
             ssr_prs.error = 1; // 30 secondes sans mise à jour
         } else {
             
-            packed_data.err_code = 3;
+            err_code = 3;
             ssr_prs.error = 0;
         }
     }
@@ -705,7 +789,7 @@ void Measures(bool gps_eco) {
     } else {
         
         // Erreur si la température est hors plage
-        packed_data.err_code = 4;
+        err_code = 4;
     }
     // Vérification si le capteur de température a été mis à jour dans les 30 secondes
     if (crnt_time - tmp_time >= 30000 && tmp == 0) {
@@ -713,7 +797,7 @@ void Measures(bool gps_eco) {
             ssr_tmp.error = 1; // 30 secondes sans mise à jour
         } else {
             
-            packed_data.err_code = 3;
+            err_code = 3;
             ssr_tmp.error = 0;
         }
     }
@@ -785,12 +869,12 @@ void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer)
 }
 
 void toggleLED() {
-    if (packed_data.err_code > 0) {
+    if (err_code > 0) {
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
 
-        switch (packed_data.err_code) {
+        switch (err_code) {
             case 1: // RTC error
                 color2[0] = 0;
                 color2[1] = 0;
@@ -950,7 +1034,7 @@ void create_new_file() {
     sprintf(file_name, "%02d%02d%02d_%01d.LOG", year % 100, month, day, file_idx);
     mes_file = SD.open(file_name, FILE_WRITE);
     if (!mes_file) {
-        packed_data.err_code = 6;
+        err_code = 6;
         return;
     }
 }
@@ -1018,14 +1102,14 @@ void setup() {
 
     if (!rtc.begin()) {
         
-        packed_data.err_code = 1;
+        err_code = 1;
         toggleLED();
         while (true);
     }
 
     if (!bme.begin()) {
         
-        packed_data.err_code = 1;
+        err_code = 1;
         toggleLED();
         while (1);
     }
@@ -1037,7 +1121,7 @@ void setup() {
 
     // Initialiser la carte SD
     if (!SD.begin(chip_slct)) {
-        packed_data.err_code = 6;
+        err_code = 6;
         return;
     }
 }
