@@ -49,7 +49,7 @@ uint8_t err_code;   // 3 bits
 uint8_t crt_ssr;
 uint8_t mode;       // 2 bits
 uint8_t timer1Count = 0;
-const char* const week_days[7] PROGMEM = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
+const char* const week_days[7]= {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
 
 
 
@@ -111,56 +111,73 @@ typedef struct Node {
 typedef struct Sensor {
     bool error : 1;
     Node *head_list;
-
+    
     Sensor() {
         error = false;
-        Node *initial_node = new Node();
-        Node *node = new Node;
-        initial_node->value = 0.0;
-        initial_node->next = nullptr;
-        head_list = initial_node;
-        for (uint8_t i = 1; i <= 3; i++) {
-            node->value = 0;
+        head_list = nullptr;
+        
+        // Create initial list with 4 nodes (0,0,0,0)
+        for (uint8_t i = 0; i < 4; i++) {
+            Node *node = new Node();
+            node->value = 0.0;
             node->next = head_list;
             head_list = node;
         }
     }
-    void Update(short int value);
-    short int Average();
-} Sensor;
-
-void Sensor::Update(short int value) {
-    Node *current;
-    Node *node = new Node();
-    node->value = value;
-    node->next = head_list;
-    head_list = node;
-    current = head_list;
-    while (current->next->next != nullptr) {
-        current = current->next;
-    }
-    delete current->next;
-    current->next = nullptr;
-}
-
-short int Sensor::Average() {
-    Node *current;
-    uint8_t count = 0;
-    short int total = 0;
-    current = head_list;
-    while (current != nullptr) {
-        if (current->value != 0) {
-            total += current->value;
+    
+    void Update(float value) {
+        Serial.println("Updating sensor with value: " + String(value));
+        
+        // Add new node at the beginning
+        Node *node = new Node();
+        node->value = value;
+        node->next = head_list;
+        head_list = node;
+        
+        // Find the second-to-last node
+        Node *current = head_list;
+        Node *prev = nullptr;
+        int count = 0;
+        
+        while (current->next != nullptr) {
+            prev = current;
+            current = current->next;
             count++;
+            
+            // Break if we've found the second-to-last node
+            if (count >= 3) {
+                break;
+            }
         }
-        current = current->next;
+        
+        // Delete the last node and update the pointer
+        if (prev != nullptr) {
+            delete current;
+            prev->next = nullptr;
+        }
     }
-    if (count != 0) {
-        return total / count;
-    } else {
-        return 0;
+    
+    float Average() {
+        Node *current;
+        uint8_t count = 0;
+        short int total = 0;
+        
+        current = head_list;
+        while (current != nullptr) {
+            if (current->value != 0) {
+                total += current->value;
+                count++;
+            }
+            current = current->next;
+        }
+        
+        if (count != 0) {
+            return total / count;
+        } else {
+            return 0;
+        }
     }
-}
+} Sensor;
 
 static Sensor ssr_lum;
 static Sensor ssr_hum;
@@ -406,18 +423,21 @@ void Init_LED(byte clk_pin, byte data_pin) {
 }
 
 void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer) {
-    setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
-    delay(1000);
+    while (true) {
     setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
+    delay(1000);
+    setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
     if (is_second_longer) {
         delay(2000);
     } else {
         delay(1000);
-    }
+    }}
 }
 
 void toggleLED() {
+    Serial.println("Got into toggleLED");
     if (err_code > 0) {
+        Serial.println("ERROR IS FOUND");
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
@@ -461,12 +481,15 @@ void toggleLED() {
                 break;
         }
         ColorerLED(color1, color2, is_second_longer);
-        while (true);
     } else {
-        if (mode) {
-            setColorRGB(0, 255, 0);
-        } else {
-            setColorRGB(0, 0, 255);
+        if (mode == 0) {
+            setColorRGB(255,255,0);
+        } else if (mode == 1) {
+            setColorRGB(0,255,0);
+        } else if (mode == 2) {
+            setColorRGB(0,0,255);
+        } else if (mode == 3) {
+            setColorRGB(255,30,0);
         }
     }
 }
@@ -606,48 +629,21 @@ void serialConfig() {
 
 
 // GPS //
-bool isGPSAwake(SoftwareSerial &gpsSerial) {
-    gpsSerial.println("$PCAS06*1B");
-    unsigned long startTime = millis();
-    char buffer[100];
-    int pos = 0;
 
-    while (true) {
-        if (gpsSerial.available()) {
-            char c = gpsSerial.read();
-            if (c == '\n') {
-                buffer[pos] = '\0';
-                if (strstr(buffer, "$PCAS66") != NULL) {
-                    char* ptr = strtok(buffer, ",");
-                    for (int i = 0; i < 3 && ptr != NULL; i++) {
-                        ptr = strtok(NULL, ",");
-                    }
-                    if (ptr != NULL) {
-                        int state = atoi(ptr);
-                        return state == 1; // 1 = active, 0 = sleep
-                    }
-                }
-                pos = 0;
-            } else if (pos < 99) {
-                buffer[pos++] = c;
-            }
-        }
-    }
-    return false; // Assume GPS is in sleep mode on timeout
-}
 
 bool getGPSdata() {
     gpsSerial.begin(9600);
+    Serial.println("IN GET GPS DATA");
 
-    if (!isGPSAwake(gpsSerial)) {
-        gpsSerial.println("$PCAS04,1*1D");
-        delay(1000); // Wait for GPS to wake up
-    }
+    Serial.println("WAKING GPS");
+    gpsSerial.println("$PCAS04,1*1D");
+    delay(1000); // Wait for GPS to wake up
 
     char buffer[100];
     unsigned short int position = 0;
-
-    while (true) {
+    bool validdata = false;
+    while (!validdata) {
+        Serial.println("LOOPING IN GPS LOOP");
         while (gpsSerial.available()) {
             char c = gpsSerial.read();
 
@@ -692,7 +688,8 @@ bool getGPSdata() {
                     if (lat != 0.0 && lon != 0.0) {
                         if (lon_dir == 'W') lon = -lon;
                         if (lat_dir == 'S') lat = -lat;
-
+                        
+                        validdata = true;
                         latitude = lat;
                         longitude = lon;
 
@@ -721,11 +718,15 @@ bool getGPSdata() {
 // TIMEOUT1 TIMER //
 ISR(TIMER1_COMPA_vect) {
     timer1Count++;
+    Serial.println("Timergot called");
     if (timer1Count >= TIMEOUT) {
+        Serial.println("GOT A TIMEOUT");
         if (err_code > 0) {
+            Serial.println("PRE ERROR ISR");
             toggleLED();
         }
         else {
+            Serial.println("SETTIGN ERROR");
             switch (crt_ssr) {
                 case 0: // Timeout on GPS
                     latitude = NULL;
@@ -795,11 +796,13 @@ void timer1_init(void) {
 }
 
 void startTimer1(void) {
+
     cli();
     TCNT1 = 0;
     timer1Count = 0;
     TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
     sei();
+    Serial.println("Done");
 }
 
 void stopTimer1(void) {
@@ -820,60 +823,97 @@ void checkLoggingInterval() {
 
 // MEASURES //
 void Measures(bool gps_eco) {
+    Serial.println("IN measures");
 
     crt_ssr = 0;   // To follow current sensor
 
+    Serial.println("Starting gps");
 
     // GPS //
     if (gps_eco) {
+        Serial.println("starting timer");
+        delay(2000);
         startTimer1();
+        Serial.println("GETTING GPS DATA");
         getGPSdata();
         if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
+            Serial.println("GOT ERROR");
             err_code = 4;
             toggleLED();
         }
+        Serial.println("Stopping timer1");
         stopTimer1();
     }
-
-
+    Serial.print(latitude);
+    Serial.print("  ");
+    Serial.println(longitude);
+    Serial.println("SENSOR IS NOW 2");
     crt_ssr = 1;
 
     // RTC //
+    Serial.println("STARTING TIMER1");
     startTimer1();
+    Serial.println("Initializing I2C");
     initI2C();
+    Serial.println("READING RTC");
     DateTime now = readDateTime();
     if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
         err_code = 4;
         toggleLED();
     }
+    Serial.println("Waiting 2 seconds");
     delay(2000);
+    Serial.println("Verifying RTC");
     DateTime now2 = readDateTime();
     if (now2.second == now.second){
+        Serial.println("RTC IS NOT OK");
         err_code = 4;
         toggleLED();
     }
+    Serial.println("DEINITIALIZING I2C");
     deinitI2C();
+    Serial.println("STOPPING TIMER1");
     stopTimer1();
-    
-
-    
 
 
+    Serial.print(week_days[int(now.day)]);
+    Serial.print(" ");
+    Serial.print(now.date);
+    Serial.print("/");
+    Serial.print(now.month);
+    Serial.print("/");
+    Serial.print(now.year);
+    Serial.print(" ");
+    Serial.print(now.hour);
+    Serial.print(":");
+    Serial.print(now.minute);
+    Serial.print(":");
+    Serial.println(now.second);
+
+
+    Serial.println("CURRENT SENSOR IS 3");
     crt_ssr = 2;
 
 
     // LUMINOSITY //
     if (manager.get("LUMIN"))
     {
+        Serial.println("GOT INTO LUM SENSOR");
         startTimer1();
+        Serial.println("STARTED TIMER");
         unsigned int lum = 0;
         lum = analogRead(lumin_pin);
-        if (lum >= 0 && lum <= 1023) {
+        if (lum >= 0 && lum <= 13) {
+            Serial.println("LUMINOSITY IS OK");
+            Serial.println(lum);
             ssr_lum.Update(lum);
+            Serial.println("UPDATED LUM");
         } else {
+            Serial.println("LUM IS NOT OK");
             err_code = 4;
             toggleLED();
         }
+        Serial.println("STOPPING TIMER1");
         stopTimer1();
         ssr_lum.error = false;
     } else {
@@ -979,7 +1019,7 @@ void Standard() {
     mode = 1;
     toggleLED();
     while (true) {
-    Measures(false);
+    Measures(true);
     delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
     checkLoggingInterval();
     }
@@ -1015,10 +1055,15 @@ void Send_Serial() {
 }
 
 void Maintenance() {
+    Serial.println("Maintenance");
     mode = 3;
+        Serial.println("Toggling LED");
     toggleLED();
+    Serial.println("Starting loop");
     while (true) {
-    Measures(false);
+    Serial.println("Starting measures.");
+    Measures(true);
+    Serial.println("Sendign to SERIAL");
     Send_Serial();
     }
 }
@@ -1068,16 +1113,19 @@ void grn_btn_rise() {
 ////////////////////
 
 void setup() {
+    Serial.begin(9600);
+    Serial.println("Arduino UP!");
     if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
         mode = 0;
+        Serial.println("CONFIG");
         // Configuration(); // Mode configuration
     }
-
+    Serial.println("Starting pinmode config");
     pinMode(A0, INPUT);
-    Init_LED(7, 8);
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
-
+    Serial.println("Starting LED");
+    Init_LED(7, 8);
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_fall, FALLING);
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_rise, RISING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
@@ -1089,6 +1137,5 @@ void setup() {
 ////////////////////
 
 void loop() {
-
-    Maintenance(); // Mode standard
+    Maintenance();
 }
