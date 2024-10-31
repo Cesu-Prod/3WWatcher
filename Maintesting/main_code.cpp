@@ -58,6 +58,7 @@ volatile uint32_t red_btn_stt;
 volatile uint32_t grn_btn_stt;
 
 
+
 // MESURES //
 const uint8_t param_num = 15;
 
@@ -94,25 +95,19 @@ byte _data_pin;
 ////////////////
 
 typedef struct Node {
-    short int value;
+    float value;
     Node *next;
 } Node;
 
 typedef struct Sensor {
-    bool activated : 1;
     bool error : 1;
-    int min_value;
-    int max_value;
     Node *head_list;
 
     Sensor() {
-        activated = false;
         error = false;
-        min_value = 0;
-        max_value = 0;
         Node *initial_node = new Node();
         Node *node = new Node;
-        initial_node->value = 0;
+        initial_node->value = 0.0;
         initial_node->next = nullptr;
         head_list = initial_node;
         for (uint8_t i = 1; i <= 3; i++) {
@@ -468,7 +463,7 @@ void toggleLED() {
 }
 
 
-uint8_t TIMEOUT = manager.get(TIMEOUT);
+uint8_t TIMEOUT = manager.get("TIMEOUT");
 
 
 // RTC //
@@ -714,7 +709,7 @@ bool getGPSdata() {
     return false;
 }
 
-// TIMEOUT TIMER //
+// TIMEOUT1 TIMER //
 ISR(TIMER1_COMPA_vect) {
     timer1Count++;
     if (timer1Count >= TIMEOUT) {
@@ -805,157 +800,223 @@ void stopTimer1(void) {
 }
 
 
+// LOG TIMER //
+ISR(TIMER2_COMPA_vect) {
+    static uint32_t timer2Count = 0;
+    timer2Count++;
+    if (timer2Count >= manager.get("LOG_INTERVAL") * 60) {
+        Serial.print("Called Save to sd");
+        timer2Count = 0;
+    }
+}
+
+void timer2_init(void) {
+    cli();                          // Disable interrupts
+    TCCR2A = 0;                     // Set timer mode to CTC
+    TCCR2B = (1 << WGM21);          // Set timer mode to CTC
+    OCR2A = TIMER1_COMPARE_VALUE;   // Set compare value
+    TIMSK2 = (1 << OCIE2A);         // Enable compare match interrupt
+    sei();                          // Enable interrupts
+}
+
+void startTimer2(void) {
+    cli();
+    TCNT2 = 0;
+    TCCR2B |= (1 << CS22) | (1 << CS21) | (1 << CS20);  // Set 1024 prescaler
+    sei();
+}
+
+void stopTimer2(void) {
+    cli();
+    TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20));  // Stop timer
+    sei();
+}
+
+
 // MEASURES //
 void Measures(bool gps_eco) {
-    // Variable pour suivre l'état des mesures
-    crt_ssr = 0;
+
+    crt_ssr = 0;   // To follow current sensor
+
+
     // GPS //
-    startTimer1();
-    getGPSdata();
-    if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
-        err_code = 4;
-        toggleLED();
-    }
-    stopTimer1();
+    if (gps_eco) {
+        startTimer1();
+        getGPSdata();
+        if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
+            err_code = 4;
+            toggleLED();
+        }
+        stopTimer1();
 
-    crt_ssr = 1;
+        crt_ssr = 1;
 
-    // RTC //
-    startTimer1();
-    DateTime now = readDateTime();
-    if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
-        err_code = 4;
-        toggleLED();
+        // RTC //
+        startTimer1();
+        DateTime now = readDateTime();
+        if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
+            err_code = 4;
+            toggleLED();
+        }
+        delay(2000);
+        DateTime now2 = readDateTime();
+        if (now2.second == now.second){
+            err_code = 4;
+            toggleLED();
+        }
+        stopTimer1();
     }
-    delay(2000);
-    DateTime now2 = readDateTime();
-    if (now2.second == now.second){
-        err_code = 4;
-        toggleLED();
-    }
-    stopTimer1();
 
 
     crt_ssr = 2;
-    
+
 
     // LUMINOSITY //
-    startTimer1();
-    unsigned int lum = 0;
-    lum = analogRead(lumin_pin);
-    if (lum >= 0 && lum <= 1023) {
-        ssr_lum.Update(lum);
+    if (manager.get("LUMIN"))
+    {
+        startTimer1();
+        unsigned int lum = 0;
+        lum = analogRead(lumin_pin);
+        if (lum >= 0 && lum <= 1023) {
+            ssr_lum.Update(lum);
+        } else {
+            err_code = 4;
+            toggleLED();
+        }
+        stopTimer1();
+        ssr_lum.error = false;
     } else {
-        err_code = 4;
-        toggleLED();      
+        ssr_lum.error = true;
     }
-    stopTimer1();
 
 
     crt_ssr = 3;
 
 
     // TEMPERATURE //
-    startTimer1();
-    uint8_t tmp = 0;
-    while (!bme.wake()){
-        delay(100);
-    }
-    while (!bme.read(data)){
-        delay(100);
-    }
-    ssr_hum.update(data.humidity)
-    hum = bme.readHumidity();
-    if (hum < 0 && hum > 100) {
-        ssr_hum.Update(hum);
-    } else {
-        err_code = 4;
-    }
-    stopTimer1();
-    
-    // PRESSION //
-    // Configuration du capteur de pression pour une lecture forcée
-    bme.setSampling(Adafruit_BME280::MODE_FORCED);
-    unsigned short int prs = 0;
-    prs = bme.readPressure() / 100; // Pression en HPa
-    // Vérification si la pression est dans la plage autorisée
-    if (prs < param[13].min && prs > param[13].max) {
-        // Mise à jour de la valeur de pression
-        ssr_prs.Update(prs);
-    } else {
-        
-        // Erreur si la pression est hors plage
-        err_code = 4;
-    }
-    // Vérification si le capteur de pression a été mis à jour dans les 30 secondes
-    if (crnt_time - prs_time >= 30000 && prs == 0) {
-        if (ssr_prs.error == 0) {
-            ssr_prs.error = 1; // 30 secondes sans mise à jour
-        } else {
-            
-            err_code = 3;
-            ssr_prs.error = 0;
+    if (manager.get("TEMP_AIR")){
+        startTimer1();
+        while (!bme.wake()){
+            delay(100);
         }
+        while (!bme.read(data)){
+            delay(100);
+        }
+        if (data.temperature < -40 || data.temperature > 85 || data.temperature < manager.get("MIN_TEMP_AIR") || data.temperature > manager.get("MAX_TEMP_AIR")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
+            err_code = 4;
+            toggleLED();
+        } else {
+            ssr_tmp.Update(data.temperature);
+            ssr_tmp.error = false;
+        }
+        while (!bme.sleep()){
+            delay(100);
+        }
+        stopTimer1();
+    } else {
+        ssr_tmp.error = true ;
     }
 
-    // TEMPÉRATURE //
-    // Configuration du capteur de température pour une lecture forcée
-    bme.setSampling(Adafruit_BME280::MODE_FORCED);
-    short int tmp = 0;
-    tmp = bme.readTemperature();
-    // Vérification si la température est dans la plage autorisée
-    if (tmp < param[7].min && tmp > param[7].max) {
-        // Mise à jour de la valeur de température
-        ssr_tmp.Update(tmp);
-    } else {
-        
-        // Erreur si la température est hors plage
-        err_code = 4;
-    }
-    // Vérification si le capteur de température a été mis à jour dans les 30 secondes
-    if (crnt_time - tmp_time >= 30000 && tmp == 0) {
-        if (ssr_tmp.error == 0) {
-            ssr_tmp.error = 1; // 30 secondes sans mise à jour
-        } else {
-            
-            err_code = 3;
-            ssr_tmp.error = 0;
+
+    crt_ssr = 4;
+
+
+    // HUMIDITY //
+    if (manager.get("HYGR")){
+        startTimer1();
+        while (!bme.wake()){
+            delay(100);
         }
+        while (!bme.read(data)){
+            delay(100);
+        }
+        if (data.humidity < 0 || data.humidity > 100) {
+            err_code = 4;
+            toggleLED();
+        } 
+        else if (data.temperature < manager.get("HYGR_MINT") || data.temperature > manager.get("HYGR_MAXT")){
+            ssr_hum.error = true;
+        }
+        else {
+            ssr_hum.Update(data.humidity);
+            ssr_hum.error = false;
+        }
+        while (!bme.sleep()){
+            delay(100);
+        }
+        stopTimer1();
+    } else {
+        ssr_tmp.error = true ;
+        }
+
+
+    crt_ssr = 5;
+
+
+    // PRESSURE //
+    if (manager.get("PRESSURE")){
+        startTimer1();
+        while (!bme.wake()){
+            delay(100);
+        }
+        while (!bme.read(data)){
+            delay(100);
+        }
+        if (data.pressure < 300 || data.pressure > 1100 || data.pressure < manager.get("PRESSURE_MIN") || data.pressure > manager.get("PRESSURE_MAX")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
+            err_code = 4;
+            toggleLED();
+        } else {
+            ssr_prs.Update(data.pressure);
+            ssr_prs.error = false;
+        }
+        while (!bme.sleep()){
+            delay(100);
+        }
+        stopTimer1();
+    } else {
+        ssr_prs.error = true ;
     }
 }
-
-
-
-
-
 // MODES //
 
 void Standard() {
-    if (mode = false) {
-        param[0].val = param[0].val / 2;
+    if (manager.get("ECO") == 1) {
+        float tmp_inter = manager.get("LOG_INTERVAL");
+        manager.save("LOG_INTERVAL", tmp_inter/2);
     }
-    mode = true;
-    Mesures(false);
+    manager.save("ECO", 0);
+    mode = 1;
     toggleLED();
-    mesure_save();
-    Serial.flush();
-    delay(param[0].val);
+    startTimer2();
+    while (true) {
+    Measures(false);
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    }
+    stopTimer2();
 }
 
-void Economique() {
-    mode = false;
-    param[0].val = param[0].val * 2;
-    Mesures(true);
+void Economic() {
+    if (manager.get("ECO") == 0) {
+        float tmp_inter = manager.get("LOG_INTERVAL");
+        manager.save("LOG_INTERVAL", tmp_inter*2);
+    }
+    manager.save("ECO", 1);
+    mode = 2;
     toggleLED();
-    mesure_save();
-    Serial.flush();
-    delay(param[0].val);
+    startTimer2();
+    while (true) {
+    Measures(false);
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    Measures(true);
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    }
+    stopTimer2();
 }
 
 void Send_Serial() {
-    Serial.println(String(hour) + ":" + String(minute) + ":" + String(second) + " - " + 
-            String(latitude) + " " + String(lat_dir) + ", " + 
-            String(lon) + " " + String(lon_dir) + ", " + 
+    Serial.println(String(now.hour) + ":" + String(now.minute) + ":" + String(now.second) + " - " + 
+            String(latitude) +
+            String(longitude) + 
             String(ssr_lum.Average()) + ", " + 
             String(ssr_hum.Average()) + ", " + 
             String(ssr_tmp.Average()) + ", " + 
@@ -963,73 +1024,51 @@ void Send_Serial() {
 }
 
 void Maintenance() {
-    setColorRGB(255, 20, 0);
-
+    mode = 3;
+    toggleLED();
     while (true) {
-        Mesures(false);
-        Send_Serial();
-        delay(param[0].val);
+    Measures(false);
+    Send_Serial();
     }
-    Serial.println("1");
 }
-
-void ToggleMode (bool color) {
-    if (mode){
-        if (color) {
-            Economique();
-        } else {
-            Maintenance();
-        }
-    } else {
-        if (color) {
-            Standard();
-        } else {
-            Maintenance();
-        }
-    }
-    if (Serial.available() > 0){
-        if (color){
-            Economique();
-        } else {
-            Standard();
-        }
-    }
+void ToggleMode () {
+    Serial.println("Toggling mode");
 }
 
 // INTERRUPT //
 void red_btn_fall() {
-    if (config_mode == true) {
+    if (mode = 0) {
         return;
     }
     // Gestion du bouton rouge
-    red_btn_time = crnt_time; // Enregistrer le temps de début
+    red_btn_stt = millis(); // Enregistrer le temps de début
 }
 
 void red_btn_rise() {
-    if (config_mode == true) {
+    if (mode = 0) {
         return;
     }
     // Gestion du bouton rouge
-    if (crnt_time - red_btn_time > 5000) { // Si plus de 5000 ms passées
-        ToggleMode(false); // Appel de ToggleMode
+    if (millis() - red_btn_stt > 5000) { // Si plus de 5000 ms passées
+        ToggleMode(); // Appel de ToggleMode
     }
 }
 
 void grn_btn_fall() {
-    if (config_mode == true) {
+    if (mode = 0) {
         return;
     }
     // Gestion du bouton vert
-    grn_btn_time = crnt_time; // Enregistrer le temps de début
+    grn_btn_stt = millis(); // Enregistrer le temps de début
 }
 
 void grn_btn_rise() {
-    if (config_mode == true) {
+    if (mode = 0) {
         return;
     }
     // Gestion du bouton vert
-    if (crnt_time - grn_btn_time > 5000) { // Si plus de 5000 ms passées
-        ToggleMode(true); // Appel de ToggleMode
+    if (millis() - grn_btn_stt > 5000) { // Si plus de 5000 ms passées
+        ToggleMode(); // Appel de ToggleMode
     }
 }
 
@@ -1040,10 +1079,10 @@ void grn_btn_rise() {
 void setup() {
     if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
         mode = 0;
-        Configuration(); // Mode configuration
+        // Configuration(); // Mode configuration
     }
 
-    pinMode(A0, INPUT)
+    pinMode(A0, INPUT);
     Init_LED(7, 8);
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
@@ -1074,5 +1113,5 @@ void setup() {
 
 void loop() {
 
-    Standard(); // Mode standard
+    Maintenance(); // Mode standard
 }
