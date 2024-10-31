@@ -10,8 +10,15 @@
 #define BATCH "NaN"
 #endif
 
-#define F_CPU 16000000UL  // Your CPU frequency (usually 16MHz for Arduino)
-#define TIMER1_COMPARE_VALUE ((F_CPU / (256UL * 1)) - 1)  // For 1Hz interrupt
+// Timer Configuration Constants
+#define F_CPU 16000000UL
+#define TIMER1_PRESCALER 1024
+
+
+// Calculate compare values for 1Hz operation
+#define TIMER1_COMPARE_VALUE ((F_CPU / (TIMER1_PRESCALER * 1)) - 1)  // For 1Hz interrupt
+
+
 
   //////////////
  // Includes //
@@ -34,6 +41,8 @@ extern "C" void __attribute__((weak)) yield(void) {}  // Acompil specific line, 
 ////////////////////////////////////
 
 
+unsigned long lastLogTime = 0;
+const unsigned long LOG_INTERVAL_MS = 60000; // 1 minute in milliseconds
 
 
 uint8_t err_code;   // 3 bits
@@ -800,36 +809,12 @@ void stopTimer1(void) {
 }
 
 
-// LOG TIMER //
-ISR(TIMER2_COMPA_vect) {
-    static uint32_t timer2Count = 0;
-    timer2Count++;
-    if (timer2Count >= manager.get("LOG_INTERVAL") * 60) {
-        Serial.print("Called Save to sd");
-        timer2Count = 0;
+void checkLoggingInterval() {
+    unsigned long currentTime = millis();
+    if (currentTime - lastLogTime >= (unsigned long)manager.get("LOG_INTERVAL") * LOG_INTERVAL_MS) {
+        Serial.println(F("Called Save to sd"));
+        lastLogTime = currentTime;
     }
-}
-
-void timer2_init(void) {
-    cli();                          // Disable interrupts
-    TCCR2A = 0;                     // Set timer mode to CTC
-    TCCR2B = (1 << WGM21);          // Set timer mode to CTC
-    OCR2A = TIMER1_COMPARE_VALUE;   // Set compare value
-    TIMSK2 = (1 << OCIE2A);         // Enable compare match interrupt
-    sei();                          // Enable interrupts
-}
-
-void startTimer2(void) {
-    cli();
-    TCNT2 = 0;
-    TCCR2B |= (1 << CS22) | (1 << CS21) | (1 << CS20);  // Set 1024 prescaler
-    sei();
-}
-
-void stopTimer2(void) {
-    cli();
-    TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20));  // Stop timer
-    sei();
 }
 
 
@@ -848,24 +833,30 @@ void Measures(bool gps_eco) {
             toggleLED();
         }
         stopTimer1();
-
-        crt_ssr = 1;
-
-        // RTC //
-        startTimer1();
-        DateTime now = readDateTime();
-        if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
-            err_code = 4;
-            toggleLED();
-        }
-        delay(2000);
-        DateTime now2 = readDateTime();
-        if (now2.second == now.second){
-            err_code = 4;
-            toggleLED();
-        }
-        stopTimer1();
     }
+
+
+    crt_ssr = 1;
+
+    // RTC //
+    startTimer1();
+    initI2C();
+    DateTime now = readDateTime();
+    if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
+        err_code = 4;
+        toggleLED();
+    }
+    delay(2000);
+    DateTime now2 = readDateTime();
+    if (now2.second == now.second){
+        err_code = 4;
+        toggleLED();
+    }
+    deinitI2C();
+    stopTimer1();
+    
+
+    
 
 
     crt_ssr = 2;
@@ -987,12 +978,11 @@ void Standard() {
     manager.save("ECO", 0);
     mode = 1;
     toggleLED();
-    startTimer2();
     while (true) {
     Measures(false);
     delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
     }
-    stopTimer2();
 }
 
 void Economic() {
@@ -1003,14 +993,15 @@ void Economic() {
     manager.save("ECO", 1);
     mode = 2;
     toggleLED();
-    startTimer2();
+
     while (true) {
     Measures(false);
     delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
     Measures(true);
     delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
     }
-    stopTimer2();
 }
 
 void Send_Serial() {
@@ -1087,25 +1078,11 @@ void setup() {
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
 
-    if (!rtc.begin()) {
-        
-        err_code = 1;
-        toggleLED();
-        while (true);
-    }
-
-    if (!bme.begin()) {
-        
-        err_code = 1;
-        toggleLED();
-        while (1);
-    }
-
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_fall, FALLING);
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_rise, RISING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_rise, RISING);
-
+}
 
   ////////////////////
  // Code principal //
