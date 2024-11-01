@@ -49,6 +49,7 @@ uint8_t err_code;   // 3 bits
 uint8_t crt_ssr;
 uint8_t mode;       // 2 bits
 uint8_t timer1Count = 0;
+uint32_t last_command = 0;
 const char* const week_days[7]= {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
 
 
@@ -376,6 +377,13 @@ DateTime now;
 
 // LED //
 
+void stopTimer1(void) {
+    cli();
+    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
+    sei();
+}
+
+
 void clk(void) {
     digitalWrite(_clk_pin, LOW);
     delayMicroseconds(_CLK_PULSE_DELAY);
@@ -392,6 +400,13 @@ void sendByte(byte b) {
 }
 
 void sendColor(byte red, byte green, byte blue) {
+    //Serial.println("Sending color");
+    //Serial.print("Red: ");
+    //Serial.println(red);
+    //Serial.print("Green: ");
+    //Serial.println(green);
+    //Serial.print("Blue: ");
+    //Serial.println(blue);
     byte prefix = B11000000;
     if ((blue & 0x80) == 0) prefix |= B00100000;
     if ((blue & 0x40) == 0) prefix |= B00010000;
@@ -404,10 +419,17 @@ void sendColor(byte red, byte green, byte blue) {
     sendByte(blue);
     sendByte(green);
     sendByte(red);
+    delay(100);
 }
 
 void setColorRGB(byte red, byte green, byte blue) {
-
+    //Serial.println("Setting color");
+    //Serial.print("Red: ");
+    //Serial.println(red);
+    //Serial.print("Green: ");
+    //Serial.println(green);
+    //Serial.print("Blue: ");
+    //Serial.println(blue);
     // Send data frame prefix
     for (byte i = 0; i < 4; i++) {
         sendByte(0x00);
@@ -427,19 +449,26 @@ void Init_LED(byte clk_pin, byte data_pin) {
 }
 
 void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer) {
+    mode = 4;
+    
     while (true) {
     setColorRGB(couleur2[0], couleur2[1], couleur2[2]);
-    delay(1000);
+    delay(1000UL);
     setColorRGB(couleur1[0], couleur1[1], couleur1[2]);
     if (is_second_longer) {
-        delay(2000);
+        delay(2000UL);
     } else {
-        delay(1000);
+        delay(1000UL);
     }}
 }
 
 void toggleLED() {
-    // Serial.println("Got into toggleLED");
+    stopTimer1();
+    //Serial.println("Got into toggleLED");
+    //Serial.print("Error code: ");
+    //Serial.println(err_code);
+    //Serial.print("Mode: ");
+    //Serial.println(mode);
     if (err_code > 0) {
         // Serial.println("ERROR IS FOUND");
         byte color1[3] = {255, 0, 0};
@@ -485,7 +514,7 @@ void toggleLED() {
                 break;
         }
         ColorerLED(color1, color2, is_second_longer);
-    } else {
+    }   else {
         if (mode == 0) {
             setColorRGB(255,255,0);
         } else if (mode == 1) {
@@ -569,6 +598,7 @@ DateTime readDateTime() {
     dt.year = bcdToDec(readRTCRegister(YEAR_REG));
     return dt;
 }
+
 void writeRTCRegister(uint8_t reg, uint8_t value) {
     // Start condition
     TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
@@ -592,6 +622,7 @@ void writeRTCRegister(uint8_t reg, uint8_t value) {
     // Stop condition
     TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
 }
+
 void deinitI2C() {
     // Disable TWI
     TWCR = 0;
@@ -600,13 +631,43 @@ void deinitI2C() {
     PORTC &= ~((1 << PINC4) | (1 << PINC5));
 }
 
+void setTime(uint8_t hour, uint8_t minute, uint8_t second) {
+    writeRTCRegister(SECONDS_REG, decToBcd(second));
+    writeRTCRegister(MINUTES_REG, decToBcd(minute));
+    writeRTCRegister(HOURS_REG, decToBcd(hour));
+}
+
+void setDate(uint8_t date, uint8_t month, uint8_t year) {
+    writeRTCRegister(DATE_REG, decToBcd(date));
+    writeRTCRegister(MONTH_REG, decToBcd(month));
+    writeRTCRegister(YEAR_REG, decToBcd(year));
+}
+
+void setDay(uint8_t day) {
+    writeRTCRegister(DAY_REG, decToBcd(day));
+}
 
 // Config function //
+
+uint8_t getDayNumber(const String& day) {
+    if (day == F("MON")) return 1;
+    if (day == F("TUE")) return 2;
+    if (day == F("WED")) return 3;
+    if (day == F("THU")) return 4;
+    if (day == F("FRI")) return 5;
+    if (day == F("SAT")) return 6;
+    if (day == F("SUN")) return 7;
+    return 0;
+}
+
+
 void serialConfig() {
     if (Serial.available()) {
+        last_command = millis();
         String command = Serial.readStringUntil('\n');
         command.trim();
         
+        // Handle existing commands
         if (command == F("RESET")) {
             manager.reset();
             return;
@@ -615,7 +676,70 @@ void serialConfig() {
             manager.version();
             return;
         }
+
+        // Handle CLOCK command
+        if (command.startsWith(F("CLOCK "))) {
+            String timeStr = command.substring(6);
+            int firstColon = timeStr.indexOf(':');
+            int secondColon = timeStr.lastIndexOf(':');
+            
+            if (firstColon > 0 && secondColon > firstColon) {
+                uint8_t hour = timeStr.substring(0, firstColon).toInt();
+                uint8_t minute = timeStr.substring(firstColon + 1, secondColon).toInt();
+                uint8_t second = timeStr.substring(secondColon + 1).toInt();
+                
+                if (hour <= 23 && minute <= 59 && second <= 59) {
+                    // For testing, print the values
+                    setTime(hour, minute, second);
+                    Serial.println(F("OK"));
+                    return;
+                }
+            }
+            Serial.println("INVALID COMMAND/PARAMETER");
+            return;
+        }
+
+        // Handle DATE command
+        if (command.startsWith(F("DATE "))) {
+            String dateStr = command.substring(5);
+            int firstComma = dateStr.indexOf(',');
+            int secondComma = dateStr.lastIndexOf(',');
+            
+            if (firstComma > 0 && secondComma > firstComma) {
+                uint8_t day = dateStr.substring(0, firstComma).toInt();
+                uint8_t month = dateStr.substring(firstComma + 1, secondComma).toInt();
+                uint8_t year = dateStr.substring(secondComma + 1).toInt();
+                
+                if (month >= 1 && month <= 12 && 
+                    day >= 1 && day <= 31 && 
+                    year >= 0 && year <= 99) {
+                    // For testing, print the values
+                    setDate(day, month, year);
+                    Serial.println(F("OK"));
+                    return;
+                }
+            }
+            Serial.println("INVALID COMMAND/PARAMETER");
+            return;
+        }
+
+        // Handle DAY command
+        if (command.startsWith(F("DAY "))) {
+            String dayStr = command.substring(4);
+            dayStr.trim();
+            uint8_t dayNum = getDayNumber(dayStr);
+            
+            if (dayNum > 0) {
+                // For testing, print the day number
+                setDay(dayNum);
+                Serial.println(F("OK"));
+                return;
+            }
+            Serial.println("INVALID COMMAND/PARAMETER");
+            return;
+        }
         
+        // Handle existing parameter setting
         int equalPos = command.indexOf('=');
         if (equalPos > 0) {
             String paramName = command.substring(0, equalPos);
@@ -625,7 +749,7 @@ void serialConfig() {
                 Serial.print(F("OK "));
                 Serial.print(manager.get(paramName.c_str()));
             } else {
-                Serial.println(F("ERR"));
+                Serial.println(F("INVALID COMMAND/PARAMETER"));
             }
         }
     }
@@ -729,13 +853,13 @@ ISR(TIMER1_COMPA_vect) {
             toggleLED();
         }
         else {
-            // Serial.println("SETTIGN ERROR");
+            // Serial.println("SETTING ERROR");
             switch (crt_ssr) {
                 case 0: // Timeout on GPS
                     latitude = NULL;
                     longitude = NULL;
                     if (gps_error == 1) {
-                        err_code = 1;
+                        err_code = 2;
                         toggleLED();
                     } else {
                         gps_error = 1;
@@ -750,7 +874,7 @@ ISR(TIMER1_COMPA_vect) {
                     now.year = NULL;
                     now.date = NULL;
                     if (rtc_error == 1) {
-                        err_code = 2;
+                        err_code = 1;
                     } else {
                         rtc_error = 1;
                     }
@@ -808,20 +932,8 @@ void startTimer1(void) {
     // Serial.println("Done");
 }
 
-void stopTimer1(void) {
-    cli();
-    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
-    sei();
-}
 
 
-void checkLoggingInterval() {
-    unsigned long currentTime = millis();
-    if (currentTime - lastLogTime >= (unsigned long)manager.get("LOG_INTERVAL") * LOG_INTERVAL_MS) {
-        Serial.println(F("Called Save to sd"));
-        lastLogTime = currentTime;
-    }
-}
 
 
 // MEASURES //
@@ -845,6 +957,7 @@ void Measures(bool gps_eco) {
             toggleLED();
         }
         // Serial.println("Stopping timer1");
+        gps_error == 0;
         stopTimer1();
     }
     // Serial.print(latitude);
@@ -896,6 +1009,7 @@ void Measures(bool gps_eco) {
     // Serial.println("DEINITIALIZING I2C");
     deinitI2C();
     // Serial.println("STOPPING TIMER1");
+    rtc_error = 0;
     stopTimer1();
 
 
@@ -1039,56 +1153,9 @@ void Measures(bool gps_eco) {
         ssr_prs.error = true ;
     }
 }
-// MODES //
 
-void Standard() {
-    if (manager.get("ECO") == 1) {
-        float tmp_inter = manager.get("LOG_INTERVAL");
-        manager.save("LOG_INTERVAL", tmp_inter/2);
-    }
-    manager.save("ECO", 0);
-    mode = 1;
-    toggleLED();
-    while (true) {
-    Measures(true);
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
-    checkLoggingInterval();
-    }
-}
 
-void Economic() {
-    if (manager.get("ECO") == 0) {
-        float tmp_inter = manager.get("LOG_INTERVAL");
-        manager.save("LOG_INTERVAL", tmp_inter*2);
-    }
-    manager.save("ECO", 1);
-    mode = 2;
-    toggleLED();
-
-    while (true) {
-    Measures(false);
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
-    checkLoggingInterval();
-    Measures(true);
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
-    checkLoggingInterval();
-    }
-}
-
-void Maintenance() {
-    // Serial.println("Maintenance");
-    mode = 3;
-        // Serial.println("Toggling LED");
-    toggleLED();
-    // Serial.println("Starting loop");
-    while (true) {
-    // Serial.println("Starting measures.");
-    Measures(true);
-    // Serial.println("Sendign to SERIAL");
-    Send_Serial();
-    }
-}
-
+// For 
 void Send_Serial() {
     // Print formatted output
     Serial.write("\033[2J");
@@ -1114,30 +1181,147 @@ void Send_Serial() {
     Serial.print("Temperature: ");
     Serial.println(ssr_tmp.Average());
     Serial.print("Luminosity: ");
-    if (ssr_hum.Average() < manager.get("LUMIN_LOW")) {
+    if (ssr_lum.Average() < manager.get("LUMIN_LOW")) {
         Serial.println("LOW");
-    } else if (ssr_hum.Average() > manager.get("LUMIN_HIGH")) {
+    } else if (ssr_lum.Average() > manager.get("LUMIN_HIGH")) {
         Serial.println("HIGH");
     } else {
         Serial.println("MEDIUM");
     }
+
     Serial.print("Humidity: ");
     Serial.println(String(ssr_hum.Average()));
     Serial.print("Pressure: ");
     Serial.println(ssr_prs.Average());
-    Serial.println("----------------------------------------\n");
+    Serial.println("----------------------------------------");
+}
+
+void checkLoggingInterval() {
+    unsigned long currentTime = millis();
+    if (currentTime - lastLogTime >= (unsigned long)manager.get("LOG_INTERVAL") * LOG_INTERVAL_MS) {
+        Serial.println(F("Called Save to sd"));
+        Send_Serial();
+        lastLogTime = currentTime;
+    }
+}
+
+
+// MODES //
+
+void Standard() {
+    Serial.println("Standard");
+    stopTimer1();
+    setColorRGB(0, 255, 0);
+    if (manager.get("ECO") == 1) {
+        float tmp_inter = manager.get("LOG_INTERVAL");
+        manager.save("LOG_INTERVAL", tmp_inter/2);
+    }
+    manager.save("ECO", 0);
+    mode = 1;
+    toggleLED();
+    while (true) {
+    Measures(true);
+    Serial.println("Measured Standard");
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
+    }
+}
+
+void Economic() {
+    Serial.println("Economic");
+    stopTimer1();
+    setColorRGB(0, 20, 255);
+    if (manager.get("ECO") == 0) {
+        float tmp_inter = manager.get("LOG_INTERVAL");
+        manager.save("LOG_INTERVAL", tmp_inter*2);
+    }
+    manager.save("ECO", 1);
+    mode = 2;
+    toggleLED();
+
+    while (true) {
+    Measures(false);
+    Serial.println("Measured Economic");
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
+    Measures(true);
+    Serial.println("Measured Standard (eco)");
+    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    checkLoggingInterval();
+    }
+}
+
+void Maintenance() {
+    Serial.println("Maintenance");
+    stopTimer1();
+    setColorRGB(255, 30, 0);
+    mode = 3;
+    
+    // Serial.println("Starting loop");
+    while (true) {
+    // Serial.println("Starting measures.");
+    Measures(true);
+    // Serial.println("Sendign to SERIAL");
+    Send_Serial();
+    }
+}
+
+void Configuration() {
+    mode = 0;
+    stopTimer1();
+    setColorRGB(255, 255, 0);
+    toggleLED();
+    manager.version();
+    while (millis() - last_command < 1800000) { // 30 * 60 * 1000 = 30 minutes
+        serialConfig();
+    }
+    if (manager.get("ECO") == 1) {
+        Economic();
+    } else {
+        Standard();
+    }
 }
 
 
 
 
 void ToggleMode(uint8_t button) {
-    Serial.println("Toggling mode");
-    if (button == 0) {
-        Serial.println("Green");
-    } else {
-        Serial.println("Red");
-    }
+    //Serial.println("Toggling mode");
+    //Serial.print("Button: ");
+    //Serial.println(button);
+    //Serial.print("Mode: ");
+    //Serial.println(mode);
+   if (button == 1) {
+switch (mode) {
+
+    case 1:
+        Maintenance();
+        break;
+    case 2:
+        Maintenance();
+        break;
+    case 3:
+        if (manager.get("ECO") == 1) {
+            Economic();
+        } else {
+            Standard();
+        }
+        break;
+    default:
+        break;
+}
+   } else if (button == 0) {
+switch (mode) {
+    case 1:
+        Economic();
+        break;
+    case 2:
+        Standard();
+        break;
+    default:
+        break;
+}
+   }
 }
 
 // INTERRUPT //
@@ -1148,6 +1332,7 @@ void red_btn_change() {
     Serial.println("Red button pressed");
   } else if ((millis() - red_btn_stt) > switch_duration &&  red_btn_pressed) {
     red_btn_pressed = false;
+    ToggleMode(1);
     Serial.println("Toggle mode red");
   } else {
     Serial.println("Red button released");
@@ -1162,6 +1347,7 @@ void grn_btn_change() {
     Serial.println("Green button pressed");
   } else if ((millis() - grn_btn_stt) > switch_duration &&  grn_btn_pressed) {
     grn_btn_pressed = false;
+    ToggleMode(0);
     Serial.println("Toggle mode green");
   } else {
     Serial.println("Green button released");
@@ -1180,16 +1366,21 @@ void setup() {
     if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
         mode = 0;
         Serial.println("CONFIG");
-        // Configuration(); // Mode configuration
+        Configuration(); // Mode configuration
     }
-    Serial.println("Starting pinmode config");
+    //Serial.println("Starting pinmode config");
     pinMode(A0, INPUT);
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
-    Serial.println("Starting LED");
+    //Serial.println("Starting LED");
     Init_LED(7, 8);
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_change, CHANGE);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_change, CHANGE);
+    if (manager.get("ECO") == 1) {
+        Economic();
+    } else {
+        Standard();
+    }
 }
 
   ////////////////////
@@ -1197,5 +1388,4 @@ void setup() {
 ////////////////////
 
 void loop() {
-    Maintenance();
 }
