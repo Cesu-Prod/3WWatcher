@@ -63,9 +63,13 @@ BME280_Mini::Data data;
 // INTERRUPTS BTN //
 #define red_btn_pin 2                       // Buttoninterrupts buttons pins config.  
 #define grn_btn_pin 3
-volatile uint32_t red_btn_stt; 
-volatile uint32_t grn_btn_stt;
+volatile unsigned long red_btn_stt = 0;
+volatile unsigned long grn_btn_stt = 0;
+#define switch_duration 5000
 
+// Variables pour l'état des boutons
+volatile bool red_btn_pressed = false;
+volatile bool grn_btn_pressed = false;
 
 
 // MESURES //
@@ -126,7 +130,7 @@ typedef struct Sensor {
     }
     
     void Update(float value) {
-        Serial.println("Updating sensor with value: " + String(value));
+        // Serial.println("Updating sensor with value: " + String(value));
         
         // Add new node at the beginning
         Node *node = new Node();
@@ -435,9 +439,9 @@ void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer)
 }
 
 void toggleLED() {
-    Serial.println("Got into toggleLED");
+    // Serial.println("Got into toggleLED");
     if (err_code > 0) {
-        Serial.println("ERROR IS FOUND");
+        // Serial.println("ERROR IS FOUND");
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
@@ -633,9 +637,9 @@ void serialConfig() {
 
 bool getGPSdata() {
     gpsSerial.begin(9600);
-    Serial.println("IN GET GPS DATA");
+    // Serial.println("IN GET GPS DATA");
 
-    Serial.println("WAKING GPS");
+    // Serial.println("WAKING GPS");
     gpsSerial.println("$PCAS04,1*1D");
     delay(1000); // Wait for GPS to wake up
 
@@ -643,10 +647,9 @@ bool getGPSdata() {
     unsigned short int position = 0;
     bool validdata = false;
     while (!validdata) {
-        Serial.println("LOOPING IN GPS LOOP");
+        // Serial.println("LOOPING IN GPS LOOP");
         while (gpsSerial.available()) {
             char c = gpsSerial.read();
-
             if (c == '\n') {
                 buffer[position] = '\0';
 
@@ -718,15 +721,15 @@ bool getGPSdata() {
 // TIMEOUT1 TIMER //
 ISR(TIMER1_COMPA_vect) {
     timer1Count++;
-    Serial.println("Timergot called");
+    // Serial.println("Timergot called");
     if (timer1Count >= TIMEOUT) {
-        Serial.println("GOT A TIMEOUT");
+        // Serial.println("GOT A TIMEOUT");
         if (err_code > 0) {
-            Serial.println("PRE ERROR ISR");
+            // Serial.println("PRE ERROR ISR");
             toggleLED();
         }
         else {
-            Serial.println("SETTIGN ERROR");
+            // Serial.println("SETTIGN ERROR");
             switch (crt_ssr) {
                 case 0: // Timeout on GPS
                     latitude = NULL;
@@ -802,7 +805,7 @@ void startTimer1(void) {
     timer1Count = 0;
     TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
     sei();
-    Serial.println("Done");
+    // Serial.println("Done");
 }
 
 void stopTimer1(void) {
@@ -823,62 +826,62 @@ void checkLoggingInterval() {
 
 // MEASURES //
 void Measures(bool gps_eco) {
-    Serial.println("IN measures");
+    // Serial.println("IN measures");
 
     crt_ssr = 0;   // To follow current sensor
 
-    Serial.println("Starting gps");
+    // Serial.println("Starting gps");
 
     // GPS //
     if (gps_eco) {
-        Serial.println("starting timer");
+        // Serial.println("starting timer");
         delay(2000);
         startTimer1();
-        Serial.println("GETTING GPS DATA");
+        // Serial.println("GETTING GPS DATA");
         getGPSdata();
         if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
-            Serial.println("GOT ERROR");
+            // Serial.println("GOT ERROR");
             err_code = 4;
             toggleLED();
         }
-        Serial.println("Stopping timer1");
+        // Serial.println("Stopping timer1");
         stopTimer1();
     }
-    Serial.print(latitude);
-    Serial.print("  ");
-    Serial.println(longitude);
-    Serial.println("SENSOR IS NOW 2");
+    // Serial.print(latitude);
+    // Serial.print("  ");
+    // Serial.println(longitude);
+    // Serial.println("SENSOR IS NOW 2");
     crt_ssr = 1;
 
     // RTC //
-    Serial.println("STARTING TIMER1");
+    // Serial.println("STARTING TIMER1");
     startTimer1();
-    Serial.println("Initializing I2C");
+    // Serial.println("Initializing I2C");
     initI2C();
-    Serial.println("READING RTC");
+    // Serial.println("READING RTC");
     DateTime tmp = readDateTime();
-    Serial.print(week_days[int(tmp.day) - 1]);
-    Serial.print(" ");
-    Serial.print(tmp.date);
-    Serial.print("/");
-    Serial.print(tmp.month);
-    Serial.print("/");
-    Serial.print(tmp.year);
-    Serial.print(" ");
-    Serial.print(tmp.hour);
-    Serial.print(":");
-    Serial.print(tmp.minute);
-    Serial.print(":");
-    Serial.println(tmp.second);
+    // Serial.print(week_days[int(tmp.day) - 1]);
+    // Serial.print(" ");
+    // Serial.print(tmp.date);
+    // Serial.print("/");
+    // Serial.print(tmp.month);
+    // Serial.print("/");
+    // Serial.print(tmp.year);
+    // Serial.print(" ");
+    // Serial.print(tmp.hour);
+    // Serial.print(":");
+    // Serial.print(tmp.minute);
+    // Serial.print(":");
+    // Serial.println(tmp.second);
     if (tmp.second > 60 || tmp.second < 0 || tmp.minute > 60 || tmp.minute < 0 || tmp.hour > 24 || tmp.hour < 0 || tmp.day == NULL || tmp.day > 7 || tmp.day < 1 || tmp.date == NULL || tmp.date > 31 || tmp.date < 1 || tmp.month == NULL || tmp.month > 12 || tmp.month < 1 || tmp.year == NULL) {
         err_code = 4;
         toggleLED();
     }
-    Serial.println("Waiting 2 seconds");
+    // Serial.println("Waiting 2 seconds");
     delay(2000);
-    Serial.println("Verifying RTC");
+    // Serial.println("Verifying RTC");
     if (tmp.second == now.second){
-        Serial.println("RTC IS NOT OK");
+        // Serial.println("RTC IS NOT OK");
         err_code = 4;
         toggleLED();
     }
@@ -890,98 +893,98 @@ void Measures(bool gps_eco) {
     now.minute = tmp.minute;
     now.second = tmp.second;
 
-    Serial.println("DEINITIALIZING I2C");
+    // Serial.println("DEINITIALIZING I2C");
     deinitI2C();
-    Serial.println("STOPPING TIMER1");
+    // Serial.println("STOPPING TIMER1");
     stopTimer1();
 
 
-    Serial.println("CURRENT SENSOR IS 3");
+    // Serial.println("CURRENT SENSOR IS 3");
     crt_ssr = 2;
 
 
     // LUMINOSITY //
     if (manager.get("LUMIN"))
     {
-        Serial.println("GOT INTO LUM SENSOR");
+        // Serial.println("GOT INTO LUM SENSOR");
         startTimer1();
-        Serial.println("STARTED TIMER");
+        // Serial.println("STARTED TIMER");
         unsigned int lum = 0;
         lum = analogRead(lumin_pin);
         if (lum >= 0 && lum <= 1023) {
-            Serial.println("LUMINOSITY IS OK");
-            Serial.println(lum);
+            // Serial.println("LUMINOSITY IS OK");
+            // Serial.println(lum);
             ssr_lum.Update(lum);
-            Serial.println("UPDATED LUM");
+            // Serial.println("UPDATED LUM");
         } else {
-            Serial.println("LUM IS NOT OK");
+            // Serial.println("LUM IS NOT OK");
             err_code = 4;
             toggleLED();
         }
-        Serial.println("STOPPING TIMER1");
+        // Serial.println("STOPPING TIMER1");
         stopTimer1();
         ssr_lum.error = false;
     } else {
         ssr_lum.error = true;
     }
 
-    Serial.println(ssr_lum.Average());
-    Serial.println("CURRENT SENSOR IS 4");
+    // Serial.println(ssr_lum.Average());
+    // Serial.println("CURRENT SENSOR IS 4");
     crt_ssr = 3;
 
 
     // TEMPERATURE //
     if (manager.get("TEMP_AIR")){
-        Serial.println("STARTING TIMER1");
+        // Serial.println("STARTING TIMER1");
         startTimer1();
-        Serial.println("Waking bme");
+        // Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
-        Serial.println("Readign data");
+        // Serial.println("Readign data");
         bme.read(data);
         delay(100);
-        Serial.println("Checking data");
-        Serial.println(data.temperature);
-        Serial.println(manager.get("MIN_TEMP_AIR"));
-        Serial.println(manager.get("MAX_TEMP_AIR"));
+        // Serial.println("Checking data");
+        // Serial.println(data.temperature);
+        // Serial.println(manager.get("MIN_TEMP_AIR"));
+        // Serial.println(manager.get("MAX_TEMP_AIR"));
         if (data.temperature < -40 || data.temperature > 85 || data.temperature < manager.get("MIN_TEMP_AIR") || data.temperature > manager.get("MAX_TEMP_AIR")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
             err_code = 4;
             toggleLED();
         } else {
-            Serial.println("UPDATING TEMP");
+            // Serial.println("UPDATING TEMP");
             ssr_tmp.Update(data.temperature);
             ssr_tmp.error = false;
         }
-        Serial.println("Sleeping bme");
+        // Serial.println("Sleeping bme");
         while (!bme.sleep()){
             delay(100);
         }
-        Serial.println("STOPPING TIMER1");
+        // Serial.println("STOPPING TIMER1");
         stopTimer1();
     } else {
         ssr_tmp.error = true ;
     }
 
-    Serial.println(ssr_tmp.Average());
-    Serial.println("CURRENT SENSOR IS 5");
+    // Serial.println(ssr_tmp.Average());
+    // Serial.println("CURRENT SENSOR IS 5");
     crt_ssr = 4;
 
 
     // HUMIDITY //
     if (manager.get("HYGR")){
-        Serial.println("STARTING TIMER1");
+        // Serial.println("STARTING TIMER1");
         startTimer1();
-        Serial.println("Waking bme");
+        // Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
-        Serial.println("Reading data");
+        // Serial.println("Reading data");
         while (!bme.read(data)){
             delay(100);
         }
-        Serial.println("Checking data");
-        Serial.println(data.humidity);
+        // Serial.println("Checking data");
+        // Serial.println(data.humidity);
         if (data.humidity < 0 || data.humidity > 1100) {
             err_code = 4;
             toggleLED();
@@ -996,31 +999,31 @@ void Measures(bool gps_eco) {
         while (!bme.sleep()){
             delay(100);
         }
-        Serial.println("STOPPING TIMER1");
+        // Serial.println("STOPPING TIMER1");
         stopTimer1();
     } else {
         ssr_tmp.error = true ;
         }
 
-    Serial.println(ssr_hum.Average());
-    Serial.println("CURRENT SENSOR IS 6");
+    // Serial.println(ssr_hum.Average());
+    // Serial.println("CURRENT SENSOR IS 6");
     crt_ssr = 5;
 
 
     // PRESSURE //
     if (manager.get("PRESSURE")){
-        Serial.println("STARTING TIMER2");
+        // Serial.println("STARTING TIMER2");
         startTimer1();
-        Serial.println("Waking bme");
+        // Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
-        Serial.println("Reading data");
+        // Serial.println("Reading data");
         while (!bme.read(data)){
             delay(100);
         }
-        Serial.println("Checking data");
-        Serial.println(data.pressure);
+        // Serial.println("Checking data");
+        // Serial.println(data.pressure);
         if (data.pressure < 300 || data.pressure > 1100 || data.pressure < manager.get("PRESSURE_MIN") || data.pressure > manager.get("PRESSURE_MAX")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
             err_code = 4;
             toggleLED();
@@ -1072,9 +1075,25 @@ void Economic() {
     }
 }
 
+void Maintenance() {
+    // Serial.println("Maintenance");
+    mode = 3;
+        // Serial.println("Toggling LED");
+    toggleLED();
+    // Serial.println("Starting loop");
+    while (true) {
+    // Serial.println("Starting measures.");
+    Measures(true);
+    // Serial.println("Sendign to SERIAL");
+    Send_Serial();
+    }
+}
 
 void Send_Serial() {
     // Print formatted output
+    Serial.write("\033[2J");
+    Serial.println();
+    Serial.println("3WWatcher version " + String(WWWVERSION) + " , batch" + String(WWWBATCH));
     Serial.println("----------------------------------------");
     Serial.print("Date : ");
     Serial.print(week_days[int(now.day) - 1]);
@@ -1111,59 +1130,44 @@ void Send_Serial() {
 
 
 
-void Maintenance() {
-    Serial.println("Maintenance");
-    mode = 3;
-        Serial.println("Toggling LED");
-    toggleLED();
-    Serial.println("Starting loop");
-    while (true) {
-    Serial.println("Starting measures.");
-    Measures(true);
-    Serial.println("Sendign to SERIAL");
-    Send_Serial();
-    }
-}
-void ToggleMode () {
+
+void ToggleMode(uint8_t button) {
     Serial.println("Toggling mode");
+    if (button == 0) {
+        Serial.println("Green");
+    } else {
+        Serial.println("Red");
+    }
 }
 
 // INTERRUPT //
-void red_btn_fall() {
-    if (mode = 0) {
-        return;
-    }
-    // Gestion du bouton rouge
-    red_btn_stt = millis(); // Enregistrer le temps de début
+void red_btn_change() {
+  if (digitalRead(red_btn_pin) == LOW) { // Bouton pressé
+    red_btn_stt = millis();
+    red_btn_pressed = true;
+    Serial.println("Red button pressed");
+  } else if ((millis() - red_btn_stt) > switch_duration &&  red_btn_pressed) {
+    red_btn_pressed = false;
+    Serial.println("Toggle mode red");
+  } else {
+    Serial.println("Red button released");
+}
 }
 
-void red_btn_rise() {
-    if (mode = 0) {
-        return;
-    }
-    // Gestion du bouton rouge
-    if (millis() - red_btn_stt > 5000) { // Si plus de 5000 ms passées
-        ToggleMode(); // Appel de ToggleMode
-    }
+// Gestionnaire d'interruption pour le bouton 3
+void grn_btn_change() {
+  if (digitalRead(grn_btn_pin) == LOW) { // Bouton pressé
+    grn_btn_stt = millis();
+    grn_btn_pressed = true;
+    Serial.println("Green button pressed");
+  } else if ((millis() - grn_btn_stt) > switch_duration &&  grn_btn_pressed) {
+    grn_btn_pressed = false;
+    Serial.println("Toggle mode green");
+  } else {
+    Serial.println("Green button released");
+}
 }
 
-void grn_btn_fall() {
-    if (mode = 0) {
-        return;
-    }
-    // Gestion du bouton vert
-    grn_btn_stt = millis(); // Enregistrer le temps de début
-}
-
-void grn_btn_rise() {
-    if (mode = 0) {
-        return;
-    }
-    // Gestion du bouton vert
-    if (millis() - grn_btn_stt > 5000) { // Si plus de 5000 ms passées
-        ToggleMode(); // Appel de ToggleMode
-    }
-}
 
   ////////////////////
  // Initialisation //
@@ -1184,10 +1188,8 @@ void setup() {
     pinMode(grn_btn_pin, INPUT_PULLUP);
     Serial.println("Starting LED");
     Init_LED(7, 8);
-    attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_fall, FALLING);
-    attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_rise, RISING);
-    attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_fall, FALLING);
-    attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_rise, RISING);
+    attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_change, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_change, CHANGE);
 }
 
   ////////////////////

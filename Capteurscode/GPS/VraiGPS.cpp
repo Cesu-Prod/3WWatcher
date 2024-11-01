@@ -1,40 +1,46 @@
 #include "Arduino.h"
 #include "SoftwareSerial.h"
 
-// Création de l'objet SoftwareSerial
-SoftwareSerial gpsSerial(6, 7); // RX sur pin 6, TX sur pin 7
+// Create SoftwareSerial object
+SoftwareSerial gpsSerial(6, 7); // RX on pin 5, TX on pin 6
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
-float longitude = 0 ;
-float latitude = 0 ;
-// Fonction pour vérifier l'état du GPS
+float longitude = 0;
+float latitude = 0;
+
+// Debug function to print NMEA sentences
+void printNMEA(const char* buffer) {
+    Serial.print("NMEA: ");
+    Serial.println(buffer);
+}
+
 bool isGPSAwake(SoftwareSerial &gpsSerial) {
-    // Envoie la commande de requête d'état
+    Serial.println("Checking GPS state...");
     gpsSerial.println("$PCAS06*1B");
     
-    // Attend la réponse
     unsigned long startTime = millis();
     char buffer[100];
     int pos = 0;
     
-    // Attend jusqu'à 1 seconde pour la réponse
     while (millis() - startTime < 1000) {
         if (gpsSerial.available()) {
             char c = gpsSerial.read();
             if (c == '\n') {
                 buffer[pos] = '\0';
-                // Vérifie si c'est la réponse à notre commande
+                Serial.print("Response: ");
+                Serial.println(buffer);
+                
                 if (strstr(buffer, "$PCAS66") != NULL) {
-                    // Le quatrième champ contient l'état du GPS
                     char* ptr = strtok(buffer, ",");
                     for (int i = 0; i < 3 && ptr != NULL; i++) {
                         ptr = strtok(NULL, ",");
                     }
                     if (ptr != NULL) {
-                        // Convertit en entier
                         int state = atoi(ptr);
-                        return state == 1; // 1 = actif, 0 = en veille
+                        Serial.print("GPS State: ");
+                        Serial.println(state);
+                        return state == 1;
                     }
                 }
                 pos = 0;
@@ -43,38 +49,44 @@ bool isGPSAwake(SoftwareSerial &gpsSerial) {
             }
         }
     }
-    return false; // En cas de timeout, on suppose que le GPS est en veille
+    Serial.println("GPS state check timed out");
+    return false;
 }
 
 bool getGPSdata() {
-    
-    // Démarrage de la communication série
+    Serial.println("Starting GPS communication...");
     gpsSerial.begin(9600);
+    delay(100); // Allow time for serial to initialize
     
-    // Vérifie si le GPS est déjà réveillé
-    if (!isGPSAwake(gpsSerial)) {
-        // Réveil du GPS
-        gpsSerial.println("$PCAS04,1*1D");
-        delay(1000); // Attendre que le GPS se réveille
+    // Clear any existing data in the buffer
+    while(gpsSerial.available()) {
+        gpsSerial.read();
     }
     
-    // Variables pour la lecture des données
+    if (!isGPSAwake(gpsSerial)) {
+        Serial.println("GPS is sleeping, waking up...");
+        gpsSerial.println("$PCAS04,1*1D");
+        delay(2000); // Increased wake-up time
+    }
+    
     char buffer[100];
     unsigned short int position = 0;
     unsigned long startTime = millis();
-    const unsigned long TIMEOUT = 60000; // Timeout de 60 secondes
+    const unsigned long TIMEOUT = 60000; // 60 second timeout
+    unsigned long lastValidData = millis();
     
-    // Boucle de lecture jusqu'à obtenir des coordonnées valides
+    Serial.println("Waiting for GPS data...");
+    
     while ((millis() - startTime) < TIMEOUT) {
-        while (gpsSerial.available()) {
+        if (gpsSerial.available()) {
             char c = gpsSerial.read();
             
             if (c == '\n') {
                 buffer[position] = '\0';
+                printNMEA(buffer); // Print each NMEA sentence for debugging
                 
-                // Vérifie si c'est une trame GNGGA
                 if (strstr(buffer, "$GNGGA") != NULL) {
-                    // Parse la trame
+                    lastValidData = millis();
                     char* ptr = strtok(buffer, ",");
                     unsigned short int index = 0;
                     char lat_dir = 'N', lon_dir = 'E';
@@ -84,22 +96,12 @@ bool getGPSdata() {
                         switch(index) {
                             case 2: // Latitude
                                 lat = atof(ptr);
-                                if (lat != 0) {
-                                    int degrees = (int)(lat / 100);
-                                    float minutes = lat - (degrees * 100);
-                                    lat = degrees + (minutes / 60.0);
-                                }
                                 break;
                             case 3: // Direction N/S
                                 lat_dir = ptr[0];
                                 break;
                             case 4: // Longitude
                                 lon = atof(ptr);
-                                if (lon != 0) {
-                                    int degrees = (int)(lon / 100);
-                                    float minutes = lon - (degrees * 100);
-                                    lon = degrees + (minutes / 60.0);
-                                }
                                 break;
                             case 5: // Direction E/W
                                 lon_dir = ptr[0];
@@ -109,55 +111,72 @@ bool getGPSdata() {
                         index++;
                     }
                     
-                    // Si les coordonnées sont valides
                     if (lat != 0.0 && lon != 0.0) {
-                        // Appliquer les directions
+                        // Convert DDMM.MMMM to decimal degrees
+                        int lat_degrees = (int)(lat / 100);
+                        float lat_minutes = lat - (lat_degrees * 100);
+                        lat = lat_degrees + (lat_minutes / 60.0);
+                        
+                        int lon_degrees = (int)(lon / 100);
+                        float lon_minutes = lon - (lon_degrees * 100);
+                        lon = lon_degrees + (lon_minutes / 60.0);
+                        
                         if (lon_dir == 'W') lon = -lon;
                         if (lat_dir == 'S') lat = -lat;
                         
-                        // Sauvegarder les coordonnées
                         latitude = lat;
                         longitude = lon;
                         
-                        // Mettre le GPS en veille profonde
+                        Serial.println("Valid GPS fix obtained!");
+                        Serial.println("Putting GPS to sleep...");
                         gpsSerial.println("$PCAS04,3*1F");
-                        
-                        // Fermer la communication série
                         gpsSerial.end();
                         
                         return true;
                     }
                 }
-                
                 position = 0;
             }
             else if (position < 99) {
                 buffer[position++] = c;
             }
         }
-        delay(10); // Petit délai pour ne pas surcharger le processeur
+        
+        // If no valid data received for 10 seconds, print debug info
+        if (millis() - lastValidData > 10000) {
+            Serial.println("No valid NMEA sentences received for 10 seconds");
+            lastValidData = millis();
+        }
     }
     
-    // En cas de timeout, mettre le GPS en veille et fermer la communication
+    Serial.println("GPS timeout occurred!");
+    Serial.println("Putting GPS to sleep...");
     gpsSerial.println("$PCAS04,3*1F");
     gpsSerial.end();
     
     return false;
 }
 
-void setup(){
+void setup() {
     Serial.begin(9600);
-    Serial.println("Arduino up!");
-    
+    while (!Serial) {
+        ; // Wait for serial port to connect
+    }
+    Serial.println("Arduino GPS Debug Version Starting...");
 }
+
 void loop() {
     delay(5000);
-    Serial.println("GETTING GPS DATA");
-    getGPSdata();
-    Serial.println("Data is :");
-    Serial.print("Lat : ");
-    Serial.println(latitude);
-    Serial.print("Long : ");
-    Serial.println(longitude);
-    
+    Serial.println("\n--- Starting GPS Data Collection ---");
+    bool success = getGPSdata();
+    Serial.println("\n--- GPS Results ---");
+    if (success) {
+        Serial.println("GPS Fix Obtained:");
+        Serial.print("Latitude: ");
+        Serial.println(latitude, 6);
+        Serial.print("Longitude: ");
+        Serial.println(longitude, 6);
+    } else {
+        Serial.println("Failed to get GPS fix");
+    }
 }

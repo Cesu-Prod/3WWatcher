@@ -142,9 +142,9 @@ const char* const week_days[7] PROGMEM = {"MON", "TUE", "WED", "THU", "FRI", "SA
 void setup() {
     Serial.begin(9600);
     initI2C();
-/*  setDate(30,10,24);
-    setTime(17,26,4);
-    setDay(3); */
+    setDate(1,11,24);
+    setTime(17,12,4);
+    setDay(3);
 
 }
 
