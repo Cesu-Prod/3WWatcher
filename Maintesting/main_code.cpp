@@ -1198,7 +1198,11 @@ void Send_Serial() {
 
 void checkLoggingInterval() {
     unsigned long currentTime = millis();
-    if (currentTime - lastLogTime >= (unsigned long)manager.get("LOG_INTERVAL") * LOG_INTERVAL_MS) {
+    Serial.println("Checking logging interval");
+    Serial.println(currentTime - lastLogTime >= int(manager.get("LOG_INTERVAL")) * 60000);
+    Serial.println((currentTime - lastLogTime)/60000);
+    Serial.println(int(manager.get("LOG_INTERVAL")));
+    if (currentTime - lastLogTime >= int(manager.get("LOG_INTERVAL")) * 60000) {
         Serial.println(F("Called Save to sd"));
         Send_Serial();
         lastLogTime = currentTime;
@@ -1221,8 +1225,12 @@ void Standard() {
     toggleLED();
     while (true) {
     Measures(true);
+    stopTimer1();
     Serial.println("Measured Standard");
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    Serial.print("Waiting for ");
+    Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    Serial.println(" minutes");
+    delay((manager.get("LOG_INTERVAL")*20000));
     checkLoggingInterval();
     }
 }
@@ -1242,11 +1250,11 @@ void Economic() {
     while (true) {
     Measures(false);
     Serial.println("Measured Economic");
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    delay(manager.get("LOG_INTERVAL")*20000);
     checkLoggingInterval();
     Measures(true);
     Serial.println("Measured Standard (eco)");
-    delay(manager.get("LOG_INTERVAL")*12000);  // Why 12000? We've got to do 3 measures between each log, so we multiply by a third of a minute in milliseconds.
+    delay(manager.get("LOG_INTERVAL")*20000);
     checkLoggingInterval();
     }
 }
