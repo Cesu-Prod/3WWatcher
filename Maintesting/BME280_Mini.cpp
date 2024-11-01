@@ -153,7 +153,7 @@ bool BME280_Mini::read(Data& data) {
     int32_t adc_H = (buffer[6] << 8) | buffer[7];
     
     data.temperature = compensateTemp(adc_T, t_fine) / 100.0 + 167;
-    data.pressure = compensatePress(adc_P, t_fine) - 14300;
+    data.pressure = (compensatePress(adc_P, t_fine) - 14300)/100;
     data.humidity = compensateHum(adc_H, t_fine) + 9;
     
     return true;

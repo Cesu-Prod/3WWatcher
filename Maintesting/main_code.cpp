@@ -160,7 +160,7 @@ typedef struct Sensor {
     float Average() {
         Node *current;
         uint8_t count = 0;
-        short int total = 0;
+        float total = 0;
         
         current = head_list;
         while (current != nullptr) {
@@ -856,39 +856,44 @@ void Measures(bool gps_eco) {
     Serial.println("Initializing I2C");
     initI2C();
     Serial.println("READING RTC");
-    DateTime now = readDateTime();
-    if (now.second == NULL || now.second > 60 || now.second < 0 || now.minute == NULL || now.minute > 60 || now.minute < 0 || now.hour == NULL || now.hour > 24 || now.hour < 0 || now.day == NULL || now.day > 31 || now.day < 1 || now.date == NULL || now.date > 7 || now.date < 1 || now.month == NULL || now.month > 12 || now.month < 1 || now.year == NULL) {
+    DateTime tmp = readDateTime();
+    Serial.print(week_days[int(tmp.day) - 1]);
+    Serial.print(" ");
+    Serial.print(tmp.date);
+    Serial.print("/");
+    Serial.print(tmp.month);
+    Serial.print("/");
+    Serial.print(tmp.year);
+    Serial.print(" ");
+    Serial.print(tmp.hour);
+    Serial.print(":");
+    Serial.print(tmp.minute);
+    Serial.print(":");
+    Serial.println(tmp.second);
+    if (tmp.second > 60 || tmp.second < 0 || tmp.minute > 60 || tmp.minute < 0 || tmp.hour > 24 || tmp.hour < 0 || tmp.day == NULL || tmp.day > 7 || tmp.day < 1 || tmp.date == NULL || tmp.date > 31 || tmp.date < 1 || tmp.month == NULL || tmp.month > 12 || tmp.month < 1 || tmp.year == NULL) {
         err_code = 4;
         toggleLED();
     }
     Serial.println("Waiting 2 seconds");
     delay(2000);
     Serial.println("Verifying RTC");
-    DateTime now2 = readDateTime();
-    if (now2.second == now.second){
+    if (tmp.second == now.second){
         Serial.println("RTC IS NOT OK");
         err_code = 4;
         toggleLED();
     }
+    now.day = tmp.day;
+    now.date = tmp.date;
+    now.month = tmp.month;
+    now.year = tmp.year;
+    now.hour = tmp.hour;
+    now.minute = tmp.minute;
+    now.second = tmp.second;
+
     Serial.println("DEINITIALIZING I2C");
     deinitI2C();
     Serial.println("STOPPING TIMER1");
     stopTimer1();
-
-
-    Serial.print(week_days[int(now.day)]);
-    Serial.print(" ");
-    Serial.print(now.date);
-    Serial.print("/");
-    Serial.print(now.month);
-    Serial.print("/");
-    Serial.print(now.year);
-    Serial.print(" ");
-    Serial.print(now.hour);
-    Serial.print(":");
-    Serial.print(now.minute);
-    Serial.print(":");
-    Serial.println(now.second);
 
 
     Serial.println("CURRENT SENSOR IS 3");
@@ -903,7 +908,7 @@ void Measures(bool gps_eco) {
         Serial.println("STARTED TIMER");
         unsigned int lum = 0;
         lum = analogRead(lumin_pin);
-        if (lum >= 0 && lum <= 13) {
+        if (lum >= 0 && lum <= 1023) {
             Serial.println("LUMINOSITY IS OK");
             Serial.println(lum);
             ssr_lum.Update(lum);
@@ -920,48 +925,64 @@ void Measures(bool gps_eco) {
         ssr_lum.error = true;
     }
 
-
+    Serial.println(ssr_lum.Average());
+    Serial.println("CURRENT SENSOR IS 4");
     crt_ssr = 3;
 
 
     // TEMPERATURE //
     if (manager.get("TEMP_AIR")){
+        Serial.println("STARTING TIMER1");
         startTimer1();
+        Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
-        while (!bme.read(data)){
-            delay(100);
-        }
+        Serial.println("Readign data");
+        bme.read(data);
+        delay(100);
+        Serial.println("Checking data");
+        Serial.println(data.temperature);
+        Serial.println(manager.get("MIN_TEMP_AIR"));
+        Serial.println(manager.get("MAX_TEMP_AIR"));
         if (data.temperature < -40 || data.temperature > 85 || data.temperature < manager.get("MIN_TEMP_AIR") || data.temperature > manager.get("MAX_TEMP_AIR")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
             err_code = 4;
             toggleLED();
         } else {
+            Serial.println("UPDATING TEMP");
             ssr_tmp.Update(data.temperature);
             ssr_tmp.error = false;
         }
+        Serial.println("Sleeping bme");
         while (!bme.sleep()){
             delay(100);
         }
+        Serial.println("STOPPING TIMER1");
         stopTimer1();
     } else {
         ssr_tmp.error = true ;
     }
 
-
+    Serial.println(ssr_tmp.Average());
+    Serial.println("CURRENT SENSOR IS 5");
     crt_ssr = 4;
 
 
     // HUMIDITY //
     if (manager.get("HYGR")){
+        Serial.println("STARTING TIMER1");
         startTimer1();
+        Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
+        Serial.println("Reading data");
         while (!bme.read(data)){
             delay(100);
         }
-        if (data.humidity < 0 || data.humidity > 100) {
+        Serial.println("Checking data");
+        Serial.println(data.humidity);
+        if (data.humidity < 0 || data.humidity > 1100) {
             err_code = 4;
             toggleLED();
         } 
@@ -975,24 +996,31 @@ void Measures(bool gps_eco) {
         while (!bme.sleep()){
             delay(100);
         }
+        Serial.println("STOPPING TIMER1");
         stopTimer1();
     } else {
         ssr_tmp.error = true ;
         }
 
-
+    Serial.println(ssr_hum.Average());
+    Serial.println("CURRENT SENSOR IS 6");
     crt_ssr = 5;
 
 
     // PRESSURE //
     if (manager.get("PRESSURE")){
+        Serial.println("STARTING TIMER2");
         startTimer1();
+        Serial.println("Waking bme");
         while (!bme.wake()){
             delay(100);
         }
+        Serial.println("Reading data");
         while (!bme.read(data)){
             delay(100);
         }
+        Serial.println("Checking data");
+        Serial.println(data.pressure);
         if (data.pressure < 300 || data.pressure > 1100 || data.pressure < manager.get("PRESSURE_MIN") || data.pressure > manager.get("PRESSURE_MAX")) {  // would separate, but the given instruction says to put the sensor in error if outside the logical boundaries.
             err_code = 4;
             toggleLED();
@@ -1044,15 +1072,44 @@ void Economic() {
     }
 }
 
+
 void Send_Serial() {
-    Serial.println(String(now.hour) + ":" + String(now.minute) + ":" + String(now.second) + " - " + 
-            String(latitude) +
-            String(longitude) + 
-            String(ssr_lum.Average()) + ", " + 
-            String(ssr_hum.Average()) + ", " + 
-            String(ssr_tmp.Average()) + ", " + 
-            String(ssr_prs.Average()));
+    // Print formatted output
+    Serial.println("----------------------------------------");
+    Serial.print("Date : ");
+    Serial.print(week_days[int(now.day) - 1]);
+    Serial.print(" ");
+    Serial.print(now.date);
+    Serial.print("/");
+    Serial.print(now.month);
+    Serial.print("/");
+    Serial.println(now.year);
+    Serial.print("Time: ");
+    Serial.print(now.hour);
+    Serial.print(":");
+    Serial.print(now.minute);
+    Serial.print(":");
+    Serial.println(now.second);
+    Serial.println("----------------------------------------");
+    Serial.println("Location: " + String(latitude) + "  " + String(longitude));
+    Serial.print("Temperature: ");
+    Serial.println(ssr_tmp.Average());
+    Serial.print("Luminosity: ");
+    if (ssr_hum.Average() < manager.get("LUMIN_LOW")) {
+        Serial.println("LOW");
+    } else if (ssr_hum.Average() > manager.get("LUMIN_HIGH")) {
+        Serial.println("HIGH");
+    } else {
+        Serial.println("MEDIUM");
+    }
+    Serial.print("Humidity: ");
+    Serial.println(String(ssr_hum.Average()));
+    Serial.print("Pressure: ");
+    Serial.println(ssr_prs.Average());
+    Serial.println("----------------------------------------\n");
 }
+
+
 
 void Maintenance() {
     Serial.println("Maintenance");
@@ -1113,6 +1170,7 @@ void grn_btn_rise() {
 ////////////////////
 
 void setup() {
+    bme.begin();
     Serial.begin(9600);
     Serial.println("Arduino UP!");
     if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
