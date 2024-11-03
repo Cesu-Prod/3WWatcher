@@ -1,22 +1,3 @@
-  /////////////
- // Version //
-/////////////
-
-#ifndef VERSION
-#define VERSION "NaN"
-#endif
-
-#ifndef BATCH
-#define BATCH "NaN"
-#endif
-
-// Timer Configuration Constants
-#define F_CPU 16000000UL
-#define TIMER1_PRESCALER 1024
-
-
-// Calculate compare values for 1Hz operation
-#define TIMER1_COMPARE_VALUE ((F_CPU / (TIMER1_PRESCALER * 1)) - 1)  // For 1Hz interrupt
 
 
 
@@ -48,7 +29,7 @@ const unsigned long LOG_INTERVAL_MS = 60000; // 1 minute in milliseconds
 uint8_t err_code;   // 3 bits
 uint8_t crt_ssr;
 uint8_t mode;       // 2 bits
-uint8_t timer1Count = 0;
+bool got_stopped = 0;
 uint32_t last_command = 0;
 const char* const week_days[7]= {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
 
@@ -56,8 +37,8 @@ const char* const week_days[7]= {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"
 
 
 // BME //
-#define SDA_PIN A4
-#define SCL_PIN A3
+#define SDA_PIN A3
+#define SCL_PIN A2
 const BME280_Mini bme(SDA_PIN, SCL_PIN);    // Uses the default address (0x76).
 BME280_Mini::Data data;
 
@@ -67,6 +48,7 @@ BME280_Mini::Data data;
 volatile unsigned long red_btn_stt = 0;
 volatile unsigned long grn_btn_stt = 0;
 #define switch_duration 5000
+volatile unsigned long int timerCount = 0;  // Made global so we can reset it
 
 // Variables pour l'état des boutons
 volatile bool red_btn_pressed = false;
@@ -90,12 +72,16 @@ byte _clk_pin;
 byte _data_pin;
 
 // CONFIGURATION //
-#ifndef WWWVERSION
-#define WWWVERSION "NaN"
+#ifndef WWWW_VERSION
+#define WWWW_VERSION "NaN"
 #endif
 
-#ifndef WWWBATCH
-#define WWWBATCH "NaN"
+#ifndef WWWW_BATCH
+#define WWWW_BATCH "NaN"
+#endif
+
+#ifndef COMPILER_VERSION
+#define COMPILER_VERSION "NaN"
 #endif
 
 #define lumin_pin A0
@@ -242,7 +228,7 @@ const PROGMEM int16_t PARAM_LIMITS[] = {
     0, 1,        // PRESSURE
     300, 1100,   // PRESSURE_MIN
     300, 1100,   // PRESSURE_MAX
-    5, 120,      // LOG_INTERVAL
+    1, 120,      // LOG_INTERVAL
     1024, 8192,  // FILE_MAX_SIZE
     0, 1,        // ECO
     1, 60        // TIMEOUT
@@ -310,10 +296,12 @@ public:
     }
 
     void version() {
-        Serial.print(F("3WWatcher v"));
-        Serial.print(WWWVERSION);
-        Serial.print(F(" b"));
-        Serial.println(WWWBATCH);
+        Serial.print(("3WWatcher version "));
+        Serial.print(WWWW_VERSION);
+        Serial.print((", batch "));
+        Serial.print(WWWW_BATCH);
+        Serial.print(", Compiler version ");
+        Serial.println(COMPILER_VERSION);
     }
 };
 
@@ -375,13 +363,44 @@ DateTime now;
  // Functions //
 ///////////////
 
-// LED //
+
+void startTimer1(void) {
+  // Configure Timer1
+  timerCount = 0;
+
+  cli();                      // Disable interrupts
+  TCCR1A = 0;                // Set entire TCCR1A register to 0
+  TCCR1B = 0;                // Same for TCCR1B
+  
+  // Set compare match register for 1 second interval
+  OCR1A = 15624;             // = 16MHz/1024/1Hz - 1
+  
+  // Turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  
+  // Set CS12 and CS10 bits for 1024 prescaler
+  TCCR1B |= (1 << CS12) | (1 << CS10);
+  
+  // Enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
+  
+  TCNT1 = 0;                 // Initialize counter value to 0
+  sei();                     // Enable interrupts
+  
+  // Serial.println("Timer1 started");
+}
 
 void stopTimer1(void) {
-    cli();
-    TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10));  // Stop timer
-    sei();
+  cli();                     // Disable interrupts
+  TCCR1A = 0;               // Set entire TCCR1A register to 0
+  TCCR1B = 0;               // Same for TCCR1B
+  TIMSK1 = 0;               // Disable timer compare interrupt
+  sei();                    // Enable interrupts
+  
+  // Serial.println("Timer1 stopped");
 }
+
+// LED //
 
 
 void clk(void) {
@@ -464,13 +483,13 @@ void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer)
 
 void toggleLED() {
     stopTimer1();
-    //Serial.println("Got into toggleLED");
-    //Serial.print("Error code: ");
-    //Serial.println(err_code);
-    //Serial.print("Mode: ");
-    //Serial.println(mode);
+    Serial.println("Toggling LED");
+    // Serial.print("Error code: ");
+    // Serial.println(err_code);
+    // Serial.print("Mode: ");
+    // Serial.println(mode);
     if (err_code > 0) {
-        // Serial.println("ERROR IS FOUND");
+        Serial.println("ERR_CODE IS NOT NULL");
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
@@ -484,7 +503,7 @@ void toggleLED() {
                 break;
             case 2: // GPS error
                 color2[0] = 255;
-                color2[1] = 125;
+                color2[1] = 255;
                 color2[2] = 0;
                 is_second_longer = false;
                 break;
@@ -632,19 +651,25 @@ void deinitI2C() {
 }
 
 void setTime(uint8_t hour, uint8_t minute, uint8_t second) {
+    initI2C();
     writeRTCRegister(SECONDS_REG, decToBcd(second));
     writeRTCRegister(MINUTES_REG, decToBcd(minute));
     writeRTCRegister(HOURS_REG, decToBcd(hour));
+    deinitI2C();
 }
 
 void setDate(uint8_t date, uint8_t month, uint8_t year) {
+    initI2C();
     writeRTCRegister(DATE_REG, decToBcd(date));
     writeRTCRegister(MONTH_REG, decToBcd(month));
     writeRTCRegister(YEAR_REG, decToBcd(year));
+    deinitI2C();
 }
 
 void setDay(uint8_t day) {
+    initI2C();
     writeRTCRegister(DAY_REG, decToBcd(day));
+    deinitI2C();
 }
 
 // Config function //
@@ -689,7 +714,7 @@ void serialConfig() {
                 uint8_t second = timeStr.substring(secondColon + 1).toInt();
                 
                 if (hour <= 23 && minute <= 59 && second <= 59) {
-                    // For testing, print the values
+                    Serial.println("Setting time");
                     setTime(hour, minute, second);
                     Serial.println(F("OK"));
                     return;
@@ -713,7 +738,7 @@ void serialConfig() {
                 if (month >= 1 && month <= 12 && 
                     day >= 1 && day <= 31 && 
                     year >= 0 && year <= 99) {
-                    // For testing, print the values
+                    Serial.println("Setting date");
                     setDate(day, month, year);
                     Serial.println(F("OK"));
                     return;
@@ -730,7 +755,7 @@ void serialConfig() {
             uint8_t dayNum = getDayNumber(dayStr);
             
             if (dayNum > 0) {
-                // For testing, print the day number
+                Serial.println("Setting day");
                 setDay(dayNum);
                 Serial.println(F("OK"));
                 return;
@@ -770,7 +795,7 @@ bool getGPSdata() {
     char buffer[100];
     unsigned short int position = 0;
     bool validdata = false;
-    while (!validdata) {
+    while (!validdata && !got_stopped) {
         // Serial.println("LOOPING IN GPS LOOP");
         while (gpsSerial.available()) {
             char c = gpsSerial.read();
@@ -843,6 +868,98 @@ bool getGPSdata() {
 }
 
 // TIMEOUT1 TIMER //
+
+// Timer1 interrupt service routine (ISR)
+ISR(TIMER1_COMPA_vect) {
+  timerCount++;
+  
+  Serial.print("Waited: ");
+  Serial.print(timerCount);
+  Serial.println(" seconds.");
+  
+  if (timerCount >= int(manager.get("TIMEOUT"))) {          // After 5 seconds
+    timerCount = 0;               // Reset counter
+    if (err_code > 0) {
+            Serial.println("PRE ERROR ISR");
+            toggleLED();
+        }
+        else {
+            Serial.println("SETTING ERROR");
+            switch (crt_ssr) {
+                case 0: // Timeout on GPS
+                    latitude = NULL;
+                    longitude = NULL;
+                    if (gps_error == 1) {
+                        Serial.println("GPS ERRORED AGAIN...skipping for demo");
+                        got_stopped = 1;
+                        // err_code = 2;
+                        // toggleLED();
+                    } else {
+                        Serial.println("GPS");
+                        gps_error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+                case 1: // Timeout on RTC
+                    now.second = NULL;
+                    now.minute = NULL;
+                    now.hour = NULL;
+                    now.day = NULL;
+                    now.month = NULL;
+                    now.year = NULL;
+                    now.date = NULL;
+                    if (rtc_error == 1) {
+                        err_code = 1;
+                    } else {
+                        Serial.println("RTC");
+                        rtc_error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+                case 2: // Timeout on luminosity sensor
+                    if (ssr_lum.error == 1) {
+                        err_code = 3;
+                    } else {
+                        Serial.println("LUMINOSITY");
+                        ssr_lum.error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+                case 3: // Timeout on temperature sensor
+                    if (ssr_tmp.error == 1) {
+                        err_code = 3;
+                    } else {
+                        Serial.println("TEMPERATURE");
+                        ssr_tmp.error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+                case 4: // Timeout on pressure sensor
+                    if (ssr_prs.error == 1) {
+                        err_code = 3;
+                    } else {
+                        Serial.println("PRESSURE");
+                        ssr_prs.error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+                case 5: // Timeout on humidity sensor
+                    if (ssr_hum.error == 1) {
+                        err_code = 3;
+                    } else {
+                        Serial.println("HUMIDITY");
+                        ssr_hum.error = 1;
+                        got_stopped = 1;
+                    }
+                    break;
+            }
+            toggleLED();
+        }
+  }
+}
+
+
+/*
 ISR(TIMER1_COMPA_vect) {
     timer1Count++;
     // Serial.println("Timergot called");
@@ -913,26 +1030,7 @@ ISR(TIMER1_COMPA_vect) {
         timer1Count = 0;
 }
 }
-void timer1_init(void) {
-    cli();                          // Disable interrupts
-    TCCR1A = 0;                     // Set timer mode to CTC
-    TCCR1B = (1 << WGM12);         // Set timer mode to CTC
-    OCR1A = TIMER1_COMPARE_VALUE;   // Set compare value
-    TIMSK1 = (1 << OCIE1A);        // Enable compare match interrupt
-    sei();                          // Enable interrupts
-}
-
-void startTimer1(void) {
-
-    cli();
-    TCNT1 = 0;
-    timer1Count = 0;
-    TCCR1B |= (1 << CS12) | (1 << CS10);  // Set 1024 prescaler
-    sei();
-    // Serial.println("Done");
-}
-
-
+*/
 
 
 
@@ -940,12 +1038,14 @@ void startTimer1(void) {
 void Measures(bool gps_eco) {
     // Serial.println("IN measures");
 
+    
     crt_ssr = 0;   // To follow current sensor
 
     // Serial.println("Starting gps");
 
     // GPS //
     if (gps_eco) {
+        Serial.println("READING GPS");
         // Serial.println("starting timer");
         delay(2000);
         startTimer1();
@@ -957,13 +1057,17 @@ void Measures(bool gps_eco) {
             toggleLED();
         }
         // Serial.println("Stopping timer1");
-        gps_error == 0;
+        if (got_stopped == 0){
+            gps_error == 0;
+        }
         stopTimer1();
     }
     // Serial.print(latitude);
     // Serial.print("  ");
     // Serial.println(longitude);
     // Serial.println("SENSOR IS NOW 2");
+    got_stopped = 0;
+    Serial.println("READING RTC");
     crt_ssr = 1;
 
     // RTC //
@@ -971,22 +1075,21 @@ void Measures(bool gps_eco) {
     startTimer1();
     // Serial.println("Initializing I2C");
     initI2C();
-    // Serial.println("READING RTC");
     DateTime tmp = readDateTime();
-    // Serial.print(week_days[int(tmp.day) - 1]);
-    // Serial.print(" ");
-    // Serial.print(tmp.date);
-    // Serial.print("/");
-    // Serial.print(tmp.month);
-    // Serial.print("/");
-    // Serial.print(tmp.year);
-    // Serial.print(" ");
-    // Serial.print(tmp.hour);
-    // Serial.print(":");
-    // Serial.print(tmp.minute);
-    // Serial.print(":");
-    // Serial.println(tmp.second);
-    if (tmp.second > 60 || tmp.second < 0 || tmp.minute > 60 || tmp.minute < 0 || tmp.hour > 24 || tmp.hour < 0 || tmp.day == NULL || tmp.day > 7 || tmp.day < 1 || tmp.date == NULL || tmp.date > 31 || tmp.date < 1 || tmp.month == NULL || tmp.month > 12 || tmp.month < 1 || tmp.year == NULL) {
+  // Serial.print(week_days[int(tmp.day) - 1]);
+  // Serial.print(" ");
+  // Serial.print(tmp.date);
+  // Serial.print("/");
+  // Serial.print(tmp.month);
+  // Serial.print("/");
+  // Serial.print(tmp.year);
+  // Serial.print(" ");
+  // Serial.print(tmp.hour);
+  // Serial.print(":");
+  // Serial.print(tmp.minute);
+  // Serial.print(":");
+  // Serial.println(tmp.second);
+    if (tmp.second > 60 || tmp.second < 0 || tmp.minute > 60 || tmp.minute < 0 || tmp.hour > 24 || tmp.hour < 0 || tmp.day == NULL || tmp.day > 7 || tmp.day < 1 || tmp.date == NULL || tmp.date > 31 || tmp.date < 1 || tmp.month == NULL || tmp.month > 12 || tmp.month < 1 || tmp.year > 99 || tmp.year < 0) {
         err_code = 4;
         toggleLED();
     }
@@ -1009,11 +1112,15 @@ void Measures(bool gps_eco) {
     // Serial.println("DEINITIALIZING I2C");
     deinitI2C();
     // Serial.println("STOPPING TIMER1");
-    rtc_error = 0;
+    if (got_stopped == 0){
+        rtc_error = 0;
+    }
     stopTimer1();
 
 
     // Serial.println("CURRENT SENSOR IS 3");
+    Serial.println("READING LUMINOSITY");
+    got_stopped = 0;
     crt_ssr = 2;
 
 
@@ -1037,13 +1144,17 @@ void Measures(bool gps_eco) {
         }
         // Serial.println("STOPPING TIMER1");
         stopTimer1();
-        ssr_lum.error = false;
+        if (got_stopped == 0){
+            ssr_lum.error = false;
+        }
     } else {
         ssr_lum.error = true;
     }
 
     // Serial.println(ssr_lum.Average());
     // Serial.println("CURRENT SENSOR IS 4");
+    Serial.println("READING TEMPERATURE");
+    got_stopped = 0;
     crt_ssr = 3;
 
 
@@ -1052,12 +1163,13 @@ void Measures(bool gps_eco) {
         // Serial.println("STARTING TIMER1");
         startTimer1();
         // Serial.println("Waking bme");
-        while (!bme.wake()){
+        while (!bme.wake() && !got_stopped){
             delay(100);
         }
         // Serial.println("Readign data");
-        bme.read(data);
-        delay(100);
+        while (!bme.read(data) && !got_stopped){
+            delay(100);
+        }
         // Serial.println("Checking data");
         // Serial.println(data.temperature);
         // Serial.println(manager.get("MIN_TEMP_AIR"));
@@ -1068,7 +1180,9 @@ void Measures(bool gps_eco) {
         } else {
             // Serial.println("UPDATING TEMP");
             ssr_tmp.Update(data.temperature);
-            ssr_tmp.error = false;
+            if (got_stopped == 0){
+                ssr_tmp.error = false;
+            }
         }
         // Serial.println("Sleeping bme");
         while (!bme.sleep()){
@@ -1082,6 +1196,8 @@ void Measures(bool gps_eco) {
 
     // Serial.println(ssr_tmp.Average());
     // Serial.println("CURRENT SENSOR IS 5");
+    Serial.println("READING HUMIDITY");
+    got_stopped = 0;
     crt_ssr = 4;
 
 
@@ -1090,11 +1206,11 @@ void Measures(bool gps_eco) {
         // Serial.println("STARTING TIMER1");
         startTimer1();
         // Serial.println("Waking bme");
-        while (!bme.wake()){
+        while (!bme.wake() && !got_stopped){
             delay(100);
         }
         // Serial.println("Reading data");
-        while (!bme.read(data)){
+        while (!bme.read(data) && !got_stopped){
             delay(100);
         }
         // Serial.println("Checking data");
@@ -1108,7 +1224,9 @@ void Measures(bool gps_eco) {
         }
         else {
             ssr_hum.Update(data.humidity);
-            ssr_hum.error = false;
+            if (got_stopped == 0){
+                ssr_hum.error = false;
+            }
         }
         while (!bme.sleep()){
             delay(100);
@@ -1121,6 +1239,8 @@ void Measures(bool gps_eco) {
 
     // Serial.println(ssr_hum.Average());
     // Serial.println("CURRENT SENSOR IS 6");
+    Serial.println("READING PRESSURE");
+    got_stopped = 0;
     crt_ssr = 5;
 
 
@@ -1129,11 +1249,11 @@ void Measures(bool gps_eco) {
         // Serial.println("STARTING TIMER2");
         startTimer1();
         // Serial.println("Waking bme");
-        while (!bme.wake()){
+        while (!bme.wake() && !got_stopped){
             delay(100);
         }
         // Serial.println("Reading data");
-        while (!bme.read(data)){
+        while (!bme.read(data) && !got_stopped){
             delay(100);
         }
         // Serial.println("Checking data");
@@ -1143,7 +1263,9 @@ void Measures(bool gps_eco) {
             toggleLED();
         } else {
             ssr_prs.Update(data.pressure);
-            ssr_prs.error = false;
+            if (got_stopped == 0){
+                ssr_prs.error = false;
+            }
         }
         while (!bme.sleep()){
             delay(100);
@@ -1160,9 +1282,12 @@ void Send_Serial() {
     // Print formatted output
     Serial.write("\033[2J");
     Serial.println();
-    Serial.println("3WWatcher version " + String(WWWVERSION) + " , batch" + String(WWWBATCH));
+    Serial.println("3WWatcher version " + String(WWWW_VERSION) + " , batch " + String(WWWW_BATCH) + " , compiler version " + String(COMPILER_VERSION));
     Serial.println("----------------------------------------");
     Serial.print("Date : ");
+    if (rtc_error == 1) {
+        Serial.println("NaN");
+    } else {
     Serial.print(week_days[int(now.day) - 1]);
     Serial.print(" ");
     Serial.print(now.date);
@@ -1170,18 +1295,33 @@ void Send_Serial() {
     Serial.print(now.month);
     Serial.print("/");
     Serial.println(now.year);
+    }
+    if (rtc_error == 1) {
+        Serial.println("NaN");
+    } else {
     Serial.print("Time: ");
     Serial.print(now.hour);
     Serial.print(":");
     Serial.print(now.minute);
     Serial.print(":");
     Serial.println(now.second);
+    }
     Serial.println("----------------------------------------");
-    Serial.println("Location: " + String(latitude) + "  " + String(longitude));
+    if (gps_error == 1) {
+        Serial.println("Location: NaN");
+    } else {
+        Serial.println("Location: " + String(latitude) + "  " + String(longitude));
+    }
     Serial.print("Temperature: ");
-    Serial.println(ssr_tmp.Average());
+    if (ssr_tmp.error == 1) {
+        Serial.println("NaN");
+    } else {
+        Serial.println(ssr_tmp.Average());
+    }
     Serial.print("Luminosity: ");
-    if (ssr_lum.Average() < manager.get("LUMIN_LOW")) {
+    if (ssr_lum.error == 1) {
+        Serial.println("NaN");
+    } else if (ssr_lum.Average() < manager.get("LUMIN_LOW")) {
         Serial.println("LOW");
     } else if (ssr_lum.Average() > manager.get("LUMIN_HIGH")) {
         Serial.println("HIGH");
@@ -1190,9 +1330,17 @@ void Send_Serial() {
     }
 
     Serial.print("Humidity: ");
-    Serial.println(String(ssr_hum.Average()));
+    if (ssr_hum.error == 1) {
+        Serial.println("NaN");
+    } else {
+        Serial.println(ssr_hum.Average());
+    }
     Serial.print("Pressure: ");
-    Serial.println(ssr_prs.Average());
+    if (ssr_prs.error == 1) {
+        Serial.println("NaN");
+    } else {
+        Serial.println(ssr_prs.Average());
+    }
     Serial.println("----------------------------------------");
 }
 
@@ -1230,7 +1378,7 @@ void Standard() {
     Serial.print("Waiting for ");
     Serial.print(int(manager.get("LOG_INTERVAL"))/3);
     Serial.println(" minutes");
-    delay((manager.get("LOG_INTERVAL")*20000));
+    delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     }
 }
@@ -1250,11 +1398,17 @@ void Economic() {
     while (true) {
     Measures(false);
     Serial.println("Measured Economic");
-    delay(manager.get("LOG_INTERVAL")*20000);
+    Serial.print("Waiting for ");
+    Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    Serial.println(" minutes");
+    delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     Measures(true);
     Serial.println("Measured Standard (eco)");
-    delay(manager.get("LOG_INTERVAL")*20000);
+    Serial.print("Waiting for ");
+    Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    Serial.println(" minutes");
+    delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     }
 }
@@ -1275,14 +1429,17 @@ void Maintenance() {
 }
 
 void Configuration() {
-    mode = 0;
+    // Serial.begin(9600);
+    Serial.println("Config");
     stopTimer1();
     setColorRGB(255, 255, 0);
+    mode = 0;
     toggleLED();
     manager.version();
     while (millis() - last_command < 1800000) { // 30 * 60 * 1000 = 30 minutes
         serialConfig();
     }
+    // Serial.end();
     if (manager.get("ECO") == 1) {
         Economic();
     } else {
@@ -1340,9 +1497,10 @@ void red_btn_change() {
     Serial.println("Red button pressed");
   } else if ((millis() - red_btn_stt) > switch_duration &&  red_btn_pressed) {
     red_btn_pressed = false;
-    ToggleMode(1);
     Serial.println("Toggle mode red");
+    ToggleMode(1);
   } else {
+    red_btn_pressed = false;
     Serial.println("Red button released");
 }
 }
@@ -1355,9 +1513,10 @@ void grn_btn_change() {
     Serial.println("Green button pressed");
   } else if ((millis() - grn_btn_stt) > switch_duration &&  grn_btn_pressed) {
     grn_btn_pressed = false;
-    ToggleMode(0);
     Serial.println("Toggle mode green");
+    ToggleMode(0);
   } else {
+    grn_btn_pressed = false;
     Serial.println("Green button released");
 }
 }
@@ -1391,9 +1550,9 @@ void setup() {
     }
 }
 
-  ////////////////////
- // Code principal //
-////////////////////
+  ///////////////////////
+ // JUST ARDUINO SHIT //
+///////////////////////
 
 void loop() {
 }

@@ -3,8 +3,8 @@
 
 extern "C" void __attribute__((weak)) yield(void) {}
 
-const uint8_t SDA_PIN = A4;
-const uint8_t SCL_PIN = A3;
+const uint8_t SDA_PIN = A3;
+const uint8_t SCL_PIN = A2;
 
 BME280_Mini bme(SDA_PIN, SCL_PIN);
 
