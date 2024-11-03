@@ -811,6 +811,115 @@ bool initSD() {
     return true;
 }
 
+void Save_to_SD() {
+
+    // Disable other peripherals temporarily to reduce power consumption
+    bme.sleep();
+    gpsSerial.end();
+    setColorRGB(0, 0, 0); // Turn off LED
+
+
+    if (initSD()) {
+        Serial.println(F("Ready to use SD card"));
+        delay(200);
+        cli();
+        if (!isSDCardFull()) {
+            Serial.println("I");
+            String name = String(now.year) + String(now.month) + String(now.date) + ".LOG";
+            if (getFileSize(name.c_str()) == 0xFFFFFFFF) {
+                createFile(name.c_str());
+            }
+            String content = String(now.hour) + ":" + String(now.minute) + ":" + String(now.second) + ",";
+            if (gps_error == 1) {
+                content += "NaN,NaN,";
+            } else {
+                content += String(latitude) + "," + String(longitude) + ",";
+            }
+            if (ssr_tmp.error == 1) {
+                content += "NaN,";
+            } else {
+                content += String(ssr_tmp.Average()) + ",";
+            }
+            if (ssr_lum.error == 1) {
+                content += "NaN,";
+            } else if (ssr_lum.Average() < manager.get("LUMIN_LOW")) {
+                content += "LOW,";
+            } else if (ssr_lum.Average() > manager.get("LUMIN_HIGH")) {
+                content += "HIGH,";
+            } else {
+                content += "MEDIUM,";
+            }
+            if (ssr_hum.error == 1) {
+                content += "NaN,";
+            } else {
+                content += String(ssr_hum.Average()) + ",";
+            }
+            if (ssr_prs.error == 1) {
+                content += "NaN,";
+            } else {
+                content += String(ssr_prs.Average()) + ",";
+            }
+            content += "\r\n";
+            appendToFile(name.c_str(), content.c_str());
+        } else {
+            err_code = 5;
+            toggleLED();
+        }
+        sei();
+
+        // When done with all operations
+        closeSD();
+
+
+
+    } else {
+        Serial.println(F("SD card initialization failed"));
+        err_code = 6;
+        toggleLED();
+    }
+    bme.wake();
+    gpsSerial.begin(9600);
+    toggleLED(); // Restore LED state
+}
+
+void Save_to_SD() {
+
+    // Disable other peripherals temporarily to reduce power consumption
+    bme.sleep();
+    gpsSerial.end();
+    setColorRGB(0, 0, 0); // Turn off LED
+
+
+    if (initSD()) {
+        Serial.println(F("Ready to use SD card"));
+        delay(200);
+        cli();
+        if (!isSDCardFull()) {
+            Serial.println("I");
+            if (getFileSize("TEST.TXT") == 0xFFFFFFFF) {
+                createFile("TEST.TXT");
+            }
+            appendToFile("TEST.TXT", "SALUT ENCUL2");
+        } else {
+            err_code = 5;
+            toggleLED();
+        }
+        sei();
+
+        // When done with all operations
+        closeSD();
+
+
+
+    } else {
+        Serial.println(F("SD card initialization failed"));
+        err_code = 6;
+        toggleLED();
+    }
+    bme.wake();
+    gpsSerial.begin(9600);
+    toggleLED(); // Restore LED state
+}
 
 // Example usage:
 void setup() {
