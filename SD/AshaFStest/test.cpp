@@ -7,6 +7,8 @@ extern "C" void __attribute__((weak)) yield(void) {}
 // Pin definitions
 const int SD_CS_PIN = 4;  // Chip Select pin
 
+
+bool sdCardInitialized = false;
 // Status codes
 #define SUCCESS 0
 #define ERROR 1
@@ -138,7 +140,7 @@ uint8_t sendCommand(uint8_t cmd, uint32_t arg) {
 
 // Initialize SD card
 uint8_t initSDCard() {
-    Serial.println(F("Initializing SD card..."));
+    // Serial.println(F("Initializing SD card..."));
     
     // Set CS high and send dummy bytes
     digitalWrite(SD_CS_PIN, HIGH);
@@ -153,7 +155,7 @@ uint8_t initSDCard() {
         response = sendCommand(CMD0, 0);
         attempts++;
         if(attempts > 10) {
-            Serial.println(F("Failed to enter SPI mode"));
+            // Serial.println(F("Failed to enter SPI mode"));
             return ERROR;
         }
     } while(response != 0x01);
@@ -168,7 +170,7 @@ uint8_t initSDCard() {
         r7 |= SPI.transfer(0xFF);
         
         if((r7 & 0xFFF) != 0x1AA) {
-            Serial.println(F("Invalid voltage range"));
+            // Serial.println(F("Invalid voltage range"));
             return ERROR;
         }
         
@@ -179,7 +181,7 @@ uint8_t initSDCard() {
             response = sendCommand(ACMD41, 0x40000000);
             attempts++;
             if(attempts > 100) {
-                Serial.println(F("Card initialization failed"));
+                // Serial.println(F("Card initialization failed"));
                 return ERROR;
             }
         } while(response != 0x00);
@@ -187,14 +189,14 @@ uint8_t initSDCard() {
     
     // Set block size to 512
     if(sendCommand(CMD16, 512) != 0x00) {
-        Serial.println(F("Failed to set block size"));
+        // Serial.println(F("Failed to set block size"));
         return ERROR;
     }
     
     // Switch to full speed
     SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE0));
     
-    Serial.println(F("SD card initialized successfully"));
+    // Serial.println(F("SD card initialized successfully"));
     return SUCCESS;
 }
 
@@ -268,13 +270,13 @@ bool initializeFAT32() {
     
     // Read MBR
     if(readBlock(0, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read MBR"));
+        // Serial.println(F("Failed to read MBR"));
         return false;
     }
     
     MBR *mbr = (MBR*)buffer;
     if(mbr->signature != 0xAA55) {
-        Serial.println(F("Invalid MBR signature"));
+        // Serial.println(F("Invalid MBR signature"));
         return false;
     }
     
@@ -290,19 +292,19 @@ bool initializeFAT32() {
     }
     
     if(!found) {
-        Serial.println(F("No FAT32 partition found"));
+        // Serial.println(F("No FAT32 partition found"));
         return false;
     }
     
     // Read boot sector
     if(readBlock(partitionStart, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read boot sector"));
+        // Serial.println(F("Failed to read boot sector"));
         return false;
     }
     
     Fat32BootSector *boot = (Fat32BootSector*)buffer;
     if(boot->boot_signature2 != 0xAA55) {
-        Serial.println(F("Invalid boot sector signature"));
+        // Serial.println(F("Invalid boot sector signature"));
         return false;
     }
     
@@ -312,12 +314,12 @@ bool initializeFAT32() {
     clusterSize = boot->sectors_per_cluster * boot->bytes_per_sector;
     dataStart = fatStart + (boot->fat_count * boot->sectors_per_fat_32);
     
-    Serial.println(F("FAT32 filesystem initialized"));
-    Serial.print(F("Partition start: ")); Serial.println(partitionStart);
-    Serial.print(F("FAT start: ")); Serial.println(fatStart);
-    Serial.print(F("Data start: ")); Serial.println(dataStart);
-    Serial.print(F("Root cluster: ")); Serial.println(rootCluster);
-    Serial.print(F("Cluster size: ")); Serial.println(clusterSize);
+    // Serial.println(F("FAT32 filesystem initialized"));
+    // Serial.print(F("Partition start: ")); // Serial.println(partitionStart);
+    // Serial.print(F("FAT start: ")); // Serial.println(fatStart);
+    // Serial.print(F("Data start: ")); // Serial.println(dataStart);
+    // Serial.print(F("Root cluster: ")); // Serial.println(rootCluster);
+    // Serial.print(F("Cluster size: ")); // Serial.println(clusterSize);
     
     return true;
 }
@@ -382,21 +384,21 @@ bool createFile(const char* filename) {
     // Find free cluster for file data
     uint32_t cluster = findFreeCluster();
     if(cluster == 0) {
-        Serial.println(F("No free clusters available"));
+        // Serial.println(F("No free clusters available"));
         return false;
     }
     
     // Find free directory entry
     uint32_t dirEntry = findFreeDirEntry();
     if(dirEntry == 0xFFFFFFFF) {
-        Serial.println(F("No free directory entries"));
+        // Serial.println(F("No free directory entries"));
         return false;
     }
     
     // Read root directory sector
     uint32_t rootSector = clusterToSector(rootCluster);
     if(readBlock(rootSector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read root directory"));
+        // Serial.println(F("Failed to read root directory"));
         return false;
     }
     
@@ -436,7 +438,7 @@ bool createFile(const char* filename) {
     
     // Write directory entry back
     if(writeBlock(rootSector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to write directory entry"));
+        // Serial.println(F("Failed to write directory entry"));
         return false;
     }
     
@@ -445,7 +447,7 @@ bool createFile(const char* filename) {
     uint32_t fatOffset = (cluster * 4) % BLOCK_SIZE;
     
     if(readBlock(fatSector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read FAT"));
+        // Serial.println(F("Failed to read FAT"));
         return false;
     }
     
@@ -456,12 +458,12 @@ bool createFile(const char* filename) {
     buffer[fatOffset + 3] = 0x0F;
     
     if(writeBlock(fatSector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to write FAT"));
+        // Serial.println(F("Failed to write FAT"));
         return false;
     }
     
-    Serial.print(F("File created successfully: "));
-    Serial.println(filename);
+    // Serial.print(F("File created successfully: "));
+    // Serial.println(filename);
     return true;
 }
 
@@ -470,12 +472,12 @@ bool appendToFile(const char* filename, const char* data) {
     uint8_t fileBuffer[BLOCK_SIZE];
     uint32_t rootSector = clusterToSector(rootCluster);
     
-    Serial.print(F("\nLooking for file: "));
-    Serial.println(filename);
+    // Serial.print(F("\nLooking for file: "));
+    // Serial.println(filename);
     
     // Read root directory
     if(readBlock(rootSector, dirBuffer) != SUCCESS) {
-        Serial.println(F("Failed to read root directory"));
+        // Serial.println(F("Failed to read root directory"));
         return false;
     }
     
@@ -499,7 +501,7 @@ bool appendToFile(const char* filename, const char* data) {
         }
     }
     
-    Serial.println(F("Directory entries:"));
+    // Serial.println(F("Directory entries:"));
     
     // Find matching file
     DirEntry* entry = nullptr;
@@ -514,33 +516,33 @@ bool appendToFile(const char* filename, const char* data) {
         }
         
         // Debug print each entry
-        Serial.print(F("Entry found - Name: '"));
+        // Serial.print(F("Entry found - Name: '"));
         for(int j = 0; j < 8; j++) {
-            Serial.print((char)current->name[j]);
+            // Serial.print((char)current->name[j]);
         }
-        Serial.print(F("' Ext: '"));
+        // Serial.print(F("' Ext: '"));
         for(int j = 0; j < 3; j++) {
-            Serial.print((char)current->ext[j]);
+            // Serial.print((char)current->ext[j]);
         }
-        Serial.println(F("'"));
+        // Serial.println(F("'"));
         
         // Compare name and extension
         if(memcmp(current->name, fname, 8) == 0 && 
            memcmp(current->ext, fext, 3) == 0) {
             entry = current;
             entryOffset = i;
-            Serial.println(F("Match found!"));
+            // Serial.println(F("Match found!"));
             break;
         }
     }
     
     if(!entry) {
-        Serial.println(F("File not found in directory"));
-        Serial.print(F("Was looking for name: '"));
-        Serial.print(fname);
-        Serial.print(F("' ext: '"));
-        Serial.print(fext);
-        Serial.println(F("'"));
+        // Serial.println(F("File not found in directory"));
+        // Serial.print(F("Was looking for name: '"));
+        // Serial.print(fname);
+        // Serial.print(F("' ext: '"));
+        // Serial.print(fext);
+        // Serial.println(F("'"));
         return false;
     }
     
@@ -549,7 +551,7 @@ bool appendToFile(const char* filename, const char* data) {
     uint32_t sector = clusterToSector(cluster);
     
     if(readBlock(sector, fileBuffer) != SUCCESS) {
-        Serial.println(F("Failed to read file content"));
+        // Serial.println(F("Failed to read file content"));
         return false;
     }
     
@@ -559,7 +561,7 @@ bool appendToFile(const char* filename, const char* data) {
     uint32_t newSize = currentSize + dataLen;
     
     if(newSize > BLOCK_SIZE) {
-        Serial.println(F("File would exceed maximum size"));
+        // Serial.println(F("File would exceed maximum size"));
         return false;
     }
     
@@ -568,7 +570,7 @@ bool appendToFile(const char* filename, const char* data) {
     
     // Write updated file content
     if(writeBlock(sector, fileBuffer) != SUCCESS) {
-        Serial.println(F("Failed to write updated file content"));
+        // Serial.println(F("Failed to write updated file content"));
         return false;
     }
     
@@ -581,11 +583,11 @@ bool appendToFile(const char* filename, const char* data) {
     
     // Write updated directory entry
     if(writeBlock(rootSector, dirBuffer) != SUCCESS) {
-        Serial.println(F("Failed to update directory entry"));
+        // Serial.println(F("Failed to update directory entry"));
         return false;
     }
     
-    Serial.println(F("File updated successfully!"));
+    // Serial.println(F("File updated successfully!"));
     return true;
 }
 
@@ -593,12 +595,12 @@ uint32_t getFileSize(const char* filename) {
     uint8_t dirBuffer[BLOCK_SIZE];
     uint32_t rootSector = clusterToSector(rootCluster);
     
-    Serial.print(F("\nChecking size of file: "));
-    Serial.println(filename);
+    // Serial.print(F("\nChecking size of file: "));
+    // Serial.println(filename);
     
     // Read root directory
     if(readBlock(rootSector, dirBuffer) != SUCCESS) {
-        Serial.println(F("Failed to read root directory"));
+        // Serial.println(F("Failed to read root directory"));
         return 0xFFFFFFFF;  // Return max value to indicate error
     }
     
@@ -636,26 +638,26 @@ uint32_t getFileSize(const char* filename) {
            memcmp(current->ext, fext, 3) == 0) {
             
             // Print file details
-            Serial.print(F("File found: "));
+            // Serial.print(F("File found: "));
             // Print name
             for(int j = 0; j < 8 && current->name[j] != ' '; j++) {
-                Serial.print((char)current->name[j]);
+                // Serial.print((char)current->name[j]);
             }
-            Serial.print('.');
+            // Serial.print('.');
             // Print extension
             for(int j = 0; j < 3 && current->ext[j] != ' '; j++) {
-                Serial.print((char)current->ext[j]);
+                // Serial.print((char)current->ext[j]);
             }
-            Serial.print(F(" - Size: "));
-            Serial.print(current->size);
-            Serial.println(F(" bytes"));
+            // Serial.print(F(" - Size: "));
+            // Serial.print(current->size);
+            // Serial.println(F(" bytes"));
             
             // Return the file size
             return current->size;
         }
     }
     
-    Serial.println(F("File not found"));
+    // Serial.println(F("File not found"));
     return 0xFFFFFFFF;  // Return max value to indicate error
 }
 
@@ -664,7 +666,7 @@ bool isSDCardFull() {
     
     // Read the boot sector
     if(readBlock(partitionStart, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read boot sector"));
+        // Serial.println(F("Failed to read boot sector"));
         return true; // Return true (full) on error to be safe
     }
     
@@ -673,7 +675,7 @@ bool isSDCardFull() {
     // Read first sector of FAT
     uint32_t fatStartSector = partitionStart + boot->reserved_sectors;
     if(readBlock(fatStartSector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to read FAT"));
+        // Serial.println(F("Failed to read FAT"));
         return true;
     }
     
@@ -689,38 +691,147 @@ bool isSDCardFull() {
     return true; // No free clusters found in first sector
 }
 
-// Example usage in setup():
-void setup() {
-    Serial.begin(9600);
-    while(!Serial);
+
+// Properly close SD card connection
+void closeSD() {
+    if(!sdCardInitialized) {
+        return;
+    }
     
-    pinMode(SD_CS_PIN, OUTPUT);
+    // Serial.println(F("\nClosing SD card connection..."));
+    
+    // End any ongoing SPI transaction
+    SPI.endTransaction();
+    
+    // Set CS high to deselect card
     digitalWrite(SD_CS_PIN, HIGH);
     
+    // End SPI
+    SPI.end();
+    
+    // Reset pins to input state (safer)
+    pinMode(SD_CS_PIN, INPUT);
+    pinMode(MOSI, INPUT);
+    pinMode(SCK, INPUT);
+    
+    sdCardInitialized = false;
+    // Serial.println(F("SD card connection closed"));
+}
+
+
+bool initSD() {
+    if(sdCardInitialized) {
+        // Serial.println(F("SD card already initialized"));
+        return true;
+    }
+    
+    // Serial.println(F("\nInitializing SD card..."));
+    
+    // Configure SPI pins
+    pinMode(SD_CS_PIN, OUTPUT);
+    digitalWrite(SD_CS_PIN, HIGH);  // Deselect SD card
+    pinMode(MOSI, OUTPUT);
+    pinMode(MISO, INPUT);
+    pinMode(SCK, OUTPUT);
+    
+    // Initialize SPI at lower speed for init
     SPI.begin();
     SPI.beginTransaction(SPISettings(400000, MSBFIRST, SPI_MODE0));
     
-    Serial.println(F("\nFAT32 SD Card Test"));
-    Serial.println(F("================="));
+    // Send dummy clocks with CS high to synchronize
+    digitalWrite(SD_CS_PIN, HIGH);
+    for(int i = 0; i < 10; i++) {
+        SPI.transfer(0xFF);
+    }
     
-    if(initSDCard() == SUCCESS && initializeFAT32()) {
-        // Create a test file
-        if(createFile("TEST.TXT")) {
-            delay(1000);  // Small delay between operations
-            
-            // Append some data
-            appendToFile("TEST.TXT", "Hello, World!\r\n");
-            delay(1000);
-            
-            // Append more data
-            appendToFile("TEST.TXT", "This is a test file.\r\n");
-
-            // Get file size
-            getFileSize("TEST.TXT");
-
-            Serial.print(isSDCardFull());
+    // Try to initialize card
+    uint8_t attempts = 0;
+    uint8_t response;
+    
+    do {
+        response = sendCommand(CMD0, 0);
+        attempts++;
+        if(attempts > 10) {
+            // Serial.println(F("Failed to enter SPI mode"));
+            closeSD();
+            return false;
         }
+    } while(response != 0x01);
+    
+    // Check SD card version
+    response = sendCommand(CMD8, 0x1AA);
+    if(response == 0x01) {
+        // SDv2 card
+        uint32_t r7 = SPI.transfer(0xFF) << 24;
+        r7 |= SPI.transfer(0xFF) << 16;
+        r7 |= SPI.transfer(0xFF) << 8;
+        r7 |= SPI.transfer(0xFF);
+        
+        if((r7 & 0xFFF) != 0x1AA) {
+            // Serial.println(F("Card voltage range mismatch"));
+            closeSD();
+            return false;
+        }
+        
+        // Initialize card
+        attempts = 0;
+        do {
+            sendCommand(CMD55, 0);
+            response = sendCommand(ACMD41, 0x40000000);
+            attempts++;
+            if(attempts > 100) {
+                // Serial.println(F("Card initialization failed"));
+                closeSD();
+                return false;
+            }
+        } while(response != 0x00);
+    }
+    
+    // Set block size to 512
+    if(sendCommand(CMD16, 512) != 0x00) {
+        // Serial.println(F("Failed to set block size"));
+        closeSD();
+        return false;
+    }
+    
+    // Switch to full speed
+    SPI.endTransaction();
+    SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE0));
+    
+    // Initialize FAT32 filesystem
+    if(!initializeFAT32()) {
+        // Serial.println(F("Failed to initialize FAT32 filesystem"));
+        closeSD();
+        return false;
+    }
+    
+    sdCardInitialized = true;
+    // Serial.println(F("SD card initialized successfully"));
+    
+    return true;
+}
+
+
+// Example usage:
+void setup() {
+    // Serial.begin(9600);
+    while(!Serial);
+    
+    if(initSD()) {
+        // Serial.println(F("Ready to use SD card"));
+        
+        // Example: Create and write to a file
+        if(!isSDCardFull()) {
+            createFile("TEST.TXT");
+            appendToFile("TEST.TXT", "Hello World!\r\n");
+        }
+        
+        // When done with all operations
+        closeSD();
+    } else {
+        // Serial.println(F("SD card initialization failed"));
     }
 }
+
 
 void loop(){}

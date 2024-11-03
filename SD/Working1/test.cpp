@@ -465,93 +465,228 @@ bool createFile(const char* filename) {
     return true;
 }
 
-// Append data to a file
 bool appendToFile(const char* filename, const char* data) {
-    uint8_t buffer[BLOCK_SIZE];
+    uint8_t dirBuffer[BLOCK_SIZE];
+    uint8_t fileBuffer[BLOCK_SIZE];
     uint32_t rootSector = clusterToSector(rootCluster);
     
+    Serial.print(F("\nLooking for file: "));
+    Serial.println(filename);
+    
     // Read root directory
-    if(readBlock(rootSector, buffer) != SUCCESS) {
+    if(readBlock(rootSector, dirBuffer) != SUCCESS) {
         Serial.println(F("Failed to read root directory"));
         return false;
     }
     
-    // Find file entry
+    // Prepare 8.3 format name for search
+    char fname[9] = "        ";  // 8 spaces
+    char fext[4] = "   ";      // 3 spaces
+    
+    // Split filename into name and extension
+    const char* dot = strchr(filename, '.');
+    size_t nameLen = dot ? (dot - filename) : strlen(filename);
+    
+    // Copy name part (up to 8 chars)
+    for(size_t i = 0; i < 8 && i < nameLen; i++) {
+        fname[i] = toupper(filename[i]);
+    }
+    
+    // Copy extension if present (up to 3 chars)
+    if(dot && dot[1]) {
+        for(size_t i = 0; i < 3 && dot[i + 1]; i++) {
+            fext[i] = toupper(dot[i + 1]);
+        }
+    }
+    
+    Serial.println(F("Directory entries:"));
+    
+    // Find matching file
     DirEntry* entry = nullptr;
+    uint16_t entryOffset = 0;
+    
     for(uint16_t i = 0; i < BLOCK_SIZE; i += sizeof(DirEntry)) {
-        DirEntry* current = (DirEntry*)(buffer + i);
+        DirEntry* current = (DirEntry*)(dirBuffer + i);
         
-        // Check if this is our file
-        char tempName[13];
-        int idx = 0;
-        for(int j = 0; j < 8 && current->name[j] != ' '; j++) {
-            tempName[idx++] = current->name[j];
+        // Skip empty or deleted entries
+        if(current->name[0] == 0x00 || current->name[0] == 0xE5) {
+            continue;
         }
-        if(current->ext[0] != ' ') {
-            tempName[idx++] = '.';
-            for(int j = 0; j < 3 && current->ext[j] != ' '; j++) {
-                tempName[idx++] = current->ext[j];
-            }
-        }
-        tempName[idx] = 0;
         
-        if(strcasecmp(tempName, filename) == 0) {
+        // Debug print each entry
+        Serial.print(F("Entry found - Name: '"));
+        for(int j = 0; j < 8; j++) {
+            Serial.print((char)current->name[j]);
+        }
+        Serial.print(F("' Ext: '"));
+        for(int j = 0; j < 3; j++) {
+            Serial.print((char)current->ext[j]);
+        }
+        Serial.println(F("'"));
+        
+        // Compare name and extension
+        if(memcmp(current->name, fname, 8) == 0 && 
+           memcmp(current->ext, fext, 3) == 0) {
             entry = current;
+            entryOffset = i;
+            Serial.println(F("Match found!"));
             break;
         }
     }
     
     if(!entry) {
-        Serial.println(F("File not found"));
+        Serial.println(F("File not found in directory"));
+        Serial.print(F("Was looking for name: '"));
+        Serial.print(fname);
+        Serial.print(F("' ext: '"));
+        Serial.print(fext);
+        Serial.println(F("'"));
         return false;
     }
     
-    // Get file's cluster chain
+    // Get file's cluster and read data
     uint32_t cluster = (entry->cluster_high << 16) | entry->cluster_low;
     uint32_t sector = clusterToSector(cluster);
     
-    // Read current content
-    if(readBlock(sector, buffer) != SUCCESS) {
+    if(readBlock(sector, fileBuffer) != SUCCESS) {
         Serial.println(F("Failed to read file content"));
         return false;
     }
     
-    // Calculate new size
+    // Append new data
     uint32_t currentSize = entry->size;
     uint32_t dataLen = strlen(data);
     uint32_t newSize = currentSize + dataLen;
     
-    // Check if we need a new cluster
-    if(newSize > clusterSize) {
-        Serial.println(F("File too large - multiple clusters not yet supported"));
+    if(newSize > BLOCK_SIZE) {
+        Serial.println(F("File would exceed maximum size"));
         return false;
     }
     
-    // Append new data
-    memcpy(buffer + currentSize, data, dataLen);
+    // Copy new data to file buffer
+    memcpy(fileBuffer + currentSize, data, dataLen);
     
-    // Write back to disk
-    if(writeBlock(sector, buffer) != SUCCESS) {
-        Serial.println(F("Failed to write file content"));
+    // Write updated file content
+    if(writeBlock(sector, fileBuffer) != SUCCESS) {
+        Serial.println(F("Failed to write updated file content"));
         return false;
     }
     
-    // Update directory entry with new size
+    // Update directory entry
     entry->size = newSize;
-    // No need to record date or time, so these fields are left as zero
+    
+    // Update modification time
     entry->modify_time = 0;
     entry->modify_date = 0;
     
-    // Write directory entry back
-    if(writeBlock(rootSector, buffer) != SUCCESS) {
+    // Write updated directory entry
+    if(writeBlock(rootSector, dirBuffer) != SUCCESS) {
         Serial.println(F("Failed to update directory entry"));
         return false;
     }
     
-    Serial.print(F("Successfully appended "));
-    Serial.print(dataLen);
-    Serial.println(F(" bytes to file"));
+    Serial.println(F("File updated successfully!"));
     return true;
+}
+
+uint32_t getFileSize(const char* filename) {
+    uint8_t dirBuffer[BLOCK_SIZE];
+    uint32_t rootSector = clusterToSector(rootCluster);
+    
+    Serial.print(F("\nChecking size of file: "));
+    Serial.println(filename);
+    
+    // Read root directory
+    if(readBlock(rootSector, dirBuffer) != SUCCESS) {
+        Serial.println(F("Failed to read root directory"));
+        return 0xFFFFFFFF;  // Return max value to indicate error
+    }
+    
+    // Prepare 8.3 format name for search
+    char fname[9] = "        ";  // 8 spaces
+    char fext[4] = "   ";      // 3 spaces
+    
+    // Split filename into name and extension
+    const char* dot = strchr(filename, '.');
+    size_t nameLen = dot ? (dot - filename) : strlen(filename);
+    
+    // Copy name part (up to 8 chars)
+    for(size_t i = 0; i < 8 && i < nameLen; i++) {
+        fname[i] = toupper(filename[i]);
+    }
+    
+    // Copy extension if present (up to 3 chars)
+    if(dot && dot[1]) {
+        for(size_t i = 0; i < 3 && dot[i + 1]; i++) {
+            fext[i] = toupper(dot[i + 1]);
+        }
+    }
+    
+    // Find matching file
+    for(uint16_t i = 0; i < BLOCK_SIZE; i += sizeof(DirEntry)) {
+        DirEntry* current = (DirEntry*)(dirBuffer + i);
+        
+        // Skip empty or deleted entries
+        if(current->name[0] == 0x00 || current->name[0] == 0xE5) {
+            continue;
+        }
+        
+        // Compare name and extension
+        if(memcmp(current->name, fname, 8) == 0 && 
+           memcmp(current->ext, fext, 3) == 0) {
+            
+            // Print file details
+            Serial.print(F("File found: "));
+            // Print name
+            for(int j = 0; j < 8 && current->name[j] != ' '; j++) {
+                Serial.print((char)current->name[j]);
+            }
+            Serial.print('.');
+            // Print extension
+            for(int j = 0; j < 3 && current->ext[j] != ' '; j++) {
+                Serial.print((char)current->ext[j]);
+            }
+            Serial.print(F(" - Size: "));
+            Serial.print(current->size);
+            Serial.println(F(" bytes"));
+            
+            // Return the file size
+            return current->size;
+        }
+    }
+    
+    Serial.println(F("File not found"));
+    return 0xFFFFFFFF;  // Return max value to indicate error
+}
+
+bool isSDCardFull() {
+    uint8_t buffer[BLOCK_SIZE];
+    
+    // Read the boot sector
+    if(readBlock(partitionStart, buffer) != SUCCESS) {
+        Serial.println(F("Failed to read boot sector"));
+        return true; // Return true (full) on error to be safe
+    }
+    
+    Fat32BootSector* boot = (Fat32BootSector*)buffer;
+    
+    // Read first sector of FAT
+    uint32_t fatStartSector = partitionStart + boot->reserved_sectors;
+    if(readBlock(fatStartSector, buffer) != SUCCESS) {
+        Serial.println(F("Failed to read FAT"));
+        return true;
+    }
+    
+    // Quick scan for any free cluster
+    for(uint32_t i = 0; i < BLOCK_SIZE; i += 4) {
+        uint32_t fatEntry = *((uint32_t*)&buffer[i]) & 0x0FFFFFFF;
+        if(fatEntry == 0) {
+            // Found a free cluster
+            return false;
+        }
+    }
+    
+    return true; // No free clusters found in first sector
 }
 
 // Example usage in setup():
@@ -573,7 +708,17 @@ void setup() {
         if(createFile("TEST.TXT")) {
             delay(1000);  // Small delay between operations
             
+            // Append some data
+            appendToFile("TEST.TXT", "Hello, World!\r\n");
+            delay(1000);
+            
+            // Append more data
+            appendToFile("TEST.TXT", "This is a test file.\r\n");
 
+            // Get file size
+            getFileSize("TEST.TXT");
+
+            Serial.print(isSDCardFull());
         }
     }
 }
