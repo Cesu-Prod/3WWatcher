@@ -4,7 +4,6 @@
 
 extern "C" void __attribute__((weak)) yield(void) {} 
 
-// Pin definitions
 const int SD_CS_PIN = 4;  // Chip Select pin
 
 
@@ -811,128 +810,19 @@ bool initSD() {
     return true;
 }
 
-void Save_to_SD() {
-
-    // Disable other peripherals temporarily to reduce power consumption
-    bme.sleep();
-    gpsSerial.end();
-    setColorRGB(0, 0, 0); // Turn off LED
-
-
-    if (initSD()) {
-        Serial.println(F("Ready to use SD card"));
-        delay(200);
-        cli();
-        if (!isSDCardFull()) {
-            Serial.println("I");
-            String name = String(now.year) + String(now.month) + String(now.date) + ".LOG";
-            if (getFileSize(name.c_str()) == 0xFFFFFFFF) {
-                createFile(name.c_str());
-            }
-            String content = String(now.hour) + ":" + String(now.minute) + ":" + String(now.second) + ",";
-            if (gps_error == 1) {
-                content += "NaN,NaN,";
-            } else {
-                content += String(latitude) + "," + String(longitude) + ",";
-            }
-            if (ssr_tmp.error == 1) {
-                content += "NaN,";
-            } else {
-                content += String(ssr_tmp.Average()) + ",";
-            }
-            if (ssr_lum.error == 1) {
-                content += "NaN,";
-            } else if (ssr_lum.Average() < manager.get("LUMIN_LOW")) {
-                content += "LOW,";
-            } else if (ssr_lum.Average() > manager.get("LUMIN_HIGH")) {
-                content += "HIGH,";
-            } else {
-                content += "MEDIUM,";
-            }
-            if (ssr_hum.error == 1) {
-                content += "NaN,";
-            } else {
-                content += String(ssr_hum.Average()) + ",";
-            }
-            if (ssr_prs.error == 1) {
-                content += "NaN,";
-            } else {
-                content += String(ssr_prs.Average()) + ",";
-            }
-            content += "\r\n";
-            appendToFile(name.c_str(), content.c_str());
-        } else {
-            err_code = 5;
-            toggleLED();
-        }
-        sei();
-
-        // When done with all operations
-        closeSD();
-
-
-
-    } else {
-        Serial.println(F("SD card initialization failed"));
-        err_code = 6;
-        toggleLED();
-    }
-    bme.wake();
-    gpsSerial.begin(9600);
-    toggleLED(); // Restore LED state
-}
-
-void Save_to_SD() {
-
-    // Disable other peripherals temporarily to reduce power consumption
-    bme.sleep();
-    gpsSerial.end();
-    setColorRGB(0, 0, 0); // Turn off LED
-
-
-    if (initSD()) {
-        Serial.println(F("Ready to use SD card"));
-        delay(200);
-        cli();
-        if (!isSDCardFull()) {
-            Serial.println("I");
-            if (getFileSize("TEST.TXT") == 0xFFFFFFFF) {
-                createFile("TEST.TXT");
-            }
-            appendToFile("TEST.TXT", "SALUT ENCUL2");
-        } else {
-            err_code = 5;
-            toggleLED();
-        }
-        sei();
-
-        // When done with all operations
-        closeSD();
-
-
-
-    } else {
-        Serial.println(F("SD card initialization failed"));
-        err_code = 6;
-        toggleLED();
-    }
-    bme.wake();
-    gpsSerial.begin(9600);
-    toggleLED(); // Restore LED state
-}
 
 // Example usage:
 void setup() {
-    // Serial.begin(9600);
+    Serial.begin(9600);
     while(!Serial);
     
     if(initSD()) {
-        // Serial.println(F("Ready to use SD card"));
+        Serial.println(F("Ready to use SD card"));
         
         // Example: Create and write to a file
         if(!isSDCardFull()) {
-            createFile("TEST.TXT");
-            appendToFile("TEST.TXT", "Hello World!\r\n");
+            appendToFile("041124_0.LOG","10:6:46,49.21,-0.36,23.18,HIGH,43.00,1034.73\r\n10:9:4,49.21,-0.36,23.25,HIGH,43.00,1034.75\r\n10:11:22,49.21,-0.36,23.08,MEDIUM,43.00,1034.69\r\n");
+            Serial.println("File created and written to successfully");
         }
         
         // When done with all operations
