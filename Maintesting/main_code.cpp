@@ -1,6 +1,4 @@
 
-
-
   //////////////
  // Includes //
 //////////////
@@ -12,16 +10,12 @@
 #include "SPI.h"
 
 
-
-
-
 extern "C" void __attribute__((weak)) yield(void) {}  // Acompil specific line, allows the compiler to be more optimized, but not necessary on unoptimized versions of Acompil or on better compilers.
 
 
   ////////////////////////////////////
  // Global Variables and Constants //
 ////////////////////////////////////
-
 
 unsigned long lastLogTime = 0;
 const unsigned long LOG_INTERVAL_MS = 60000; // 1 minute in milliseconds
@@ -58,10 +52,8 @@ volatile unsigned long int timerCount = 0;  // Made global so we can reset it
 volatile bool red_btn_pressed = false;
 volatile bool grn_btn_pressed = false;
 
-
 // MESURES //
 const uint8_t param_num = 15;
-
 
 // GPS //
 float latitude = 0.0;
@@ -94,7 +86,6 @@ byte _data_pin;
 
 // Pin definitions
 const int SD_CS_PIN = 4;  // Chip Select pin
-
 
 bool sdCardInitialized = false;
 // Status codes
@@ -133,51 +124,51 @@ struct __attribute__((packed)) MBR {
 
 // FAT32 structures
 struct __attribute__((packed)) Fat32BootSector {
-    uint8_t  jump_boot[3];       // Jump instruction to boot code
-    char     oem_name[8];        // OEM Name (padded with spaces)
-    uint16_t bytes_per_sector;   // Bytes per sector (usually 512)
+    uint8_t  jump_boot[3];        // Jump instruction to boot code
+    char     oem_name[8];         // OEM Name (padded with spaces)
+    uint16_t bytes_per_sector;    // Bytes per sector (usually 512)
     uint8_t  sectors_per_cluster; // Sectors per cluster
-    uint16_t reserved_sectors;   // Reserved sector count
-    uint8_t  fat_count;         // Number of FATs (usually 2)
-    uint16_t root_entries;      // Number of root directory entries (FAT32 = 0)
-    uint16_t total_sectors_16;  // Total sectors (FAT32 = 0)
-    uint8_t  media_type;        // Media type
-    uint16_t sectors_per_fat_16; // Sectors per FAT (FAT32 = 0)
-    uint16_t sectors_per_track; // Sectors per track
-    uint16_t head_count;        // Number of heads
-    uint32_t hidden_sectors;    // Hidden sectors
-    uint32_t total_sectors_32;  // Total sectors (if total_sectors_16 = 0)
-    uint32_t sectors_per_fat_32; // Sectors per FAT
-    uint16_t ext_flags;        // FAT flags
-    uint16_t fs_version;       // Filesystem version
-    uint32_t root_cluster;     // First cluster of root directory
-    uint16_t fs_info;         // FSInfo sector number
-    uint16_t backup_boot;     // Backup boot sector
-    uint8_t  reserved[12];    // Reserved
-    uint8_t  drive_number;    // Drive number
-    uint8_t  reserved1;       // Reserved
-    uint8_t  boot_signature;  // Extended boot signature
-    uint32_t volume_id;       // Volume serial number
-    char     volume_label[11]; // Volume label
-    char     fs_type[8];      // Filesystem type ("FAT32   ")
-    uint8_t  boot_code[420];  // Boot code
-    uint16_t boot_signature2; // Boot signature (0xAA55)
+    uint16_t reserved_sectors;    // Reserved sector count
+    uint8_t  fat_count;           // Number of FATs (usually 2)
+    uint16_t root_entries;        // Number of root directory entries (FAT32 = 0)
+    uint16_t total_sectors_16;    // Total sectors (FAT32 = 0)
+    uint8_t  media_type;          // Media type
+    uint16_t sectors_per_fat_16;  // Sectors per FAT (FAT32 = 0)
+    uint16_t sectors_per_track;   // Sectors per track
+    uint16_t head_count;          // Number of heads
+    uint32_t hidden_sectors;      // Hidden sectors
+    uint32_t total_sectors_32;    // Total sectors (if total_sectors_16 = 0)
+    uint32_t sectors_per_fat_32;  // Sectors per FAT
+    uint16_t ext_flags;           // FAT flags
+    uint16_t fs_version;          // Filesystem version
+    uint32_t root_cluster;        // First cluster of root directory
+    uint16_t fs_info;             // FSInfo sector number
+    uint16_t backup_boot;         // Backup boot sector
+    uint8_t  reserved[12];        // Reserved
+    uint8_t  drive_number;        // Drive number
+    uint8_t  reserved1;           // Reserved
+    uint8_t  boot_signature;      // Extended boot signature
+    uint32_t volume_id;           // Volume serial number
+    char     volume_label[11];    // Volume label
+    char     fs_type[8];          // Filesystem type ("FAT32   ")
+    uint8_t  boot_code[420];      // Boot code
+    uint16_t boot_signature2;     // Boot signature (0xAA55)
 };
 
 struct __attribute__((packed)) DirEntry {
     char     name[8];         // File name
     char     ext[3];          // File extension
     uint8_t  attributes;      // File attributes
-    uint8_t  reserved;       // Reserved
-    uint8_t  create_time_ms; // Creation time (milliseconds)
-    uint16_t create_time;    // Creation time
-    uint16_t create_date;    // Creation date
-    uint16_t access_date;    // Last access date
-    uint16_t cluster_high;   // High word of first cluster
-    uint16_t modify_time;    // Last modify time
-    uint16_t modify_date;    // Last modify date
-    uint16_t cluster_low;    // Low word of first cluster
-    uint32_t size;           // File size
+    uint8_t  reserved;        // Reserved
+    uint8_t  create_time_ms;  // Creation time (milliseconds)
+    uint16_t create_time;     // Creation time
+    uint16_t create_date;     // Creation date
+    uint16_t access_date;     // Last access date
+    uint16_t cluster_high;    // High word of first cluster
+    uint16_t modify_time;     // Last modify time
+    uint16_t modify_date;     // Last modify date
+    uint16_t cluster_low;     // Low word of first cluster
+    uint32_t size;            // File size
 };
 
 // Global variables
@@ -186,7 +177,6 @@ uint32_t fatStart = 0;
 uint32_t dataStart = 0;
 uint32_t rootCluster = 0;
 uint32_t clusterSize = 0;
-
 
 
   ////////////////
@@ -428,7 +418,6 @@ char ParameterManager::stringBuffer[16];
 static ParameterManager manager;
 
 
-
 // RTC //
 struct DateTime {
     uint8_t second;
@@ -441,7 +430,6 @@ struct DateTime {
 };
 
 DateTime now;
-
 
 
 // DS1307 I2C address
@@ -462,17 +450,16 @@ DateTime now;
  // Functions //
 ///////////////
 
-
 // LED //
 
 void stopTimer1(void) {
-  cli();                     // Disable interrupts
-  TCCR1A = 0;               // Set entire TCCR1A register to 0
-  TCCR1B = 0;               // Same for TCCR1B
-  TIMSK1 = 0;               // Disable timer compare interrupt
-  sei();                    // Enable interrupts
-  
-  // Serial.println("Timer1 stopped");
+    cli();                     // Disable interrupts
+    TCCR1A = 0;               // Set entire TCCR1A register to 0
+    TCCR1B = 0;               // Same for TCCR1B
+    TIMSK1 = 0;               // Disable timer compare interrupt
+    sei();                    // Enable interrupts
+    
+    // Serial.println("Timer1 stopped");
 }
 void clk(void) {
     digitalWrite(_clk_pin, LOW);
@@ -554,13 +541,13 @@ void ColorerLED(uint8_t couleur1[3], uint8_t couleur2[3], bool is_second_longer)
 
 void toggleLED() {
     stopTimer1();
-  // Serial.println("Toggling LED");
+    // Serial.println("Toggling LED");
     // Serial.print("Error code: ");
     // Serial.println(err_code);
     // Serial.print("Mode: ");
     // Serial.println(mode);
     if (err_code > 0) {
-      // Serial.println("ERR_CODE IS NOT NULL");
+        // Serial.println("ERR_CODE IS NOT NULL");
         byte color1[3] = {255, 0, 0};
         byte color2[3];
         bool is_second_longer;
@@ -616,7 +603,6 @@ void toggleLED() {
         }
     }
 }
-
 
 uint8_t TIMEOUT = manager.get("TIMEOUT");
 
@@ -868,7 +854,7 @@ uint32_t findFreeCluster() {
         // Check each entry in this sector
         for(uint16_t i = 0; i < BLOCK_SIZE; i += 4) {
             uint32_t value = buffer[i] | (buffer[i + 1] << 8) | 
-                            (buffer[i + 2] << 16) | (buffer[i + 3] << 24);
+            (buffer[i + 2] << 16) | (buffer[i + 3] << 24);
             
             if(value == 0) {
                 return cluster;
@@ -1129,7 +1115,7 @@ uint32_t getFileSize(const char* filename) {
     
     // Prepare 8.3 format name for search
     char fname[9] = "        ";  // 8 spaces
-    char fext[4] = "   ";      // 3 spaces
+    char fext[4] = "   ";        // 3 spaces
     
     // Split filename into name and extension
     const char* dot = strchr(filename, '.');
@@ -1289,13 +1275,12 @@ void Save_to_SD() {
     gpsSerial.end();
     setColorRGB(0, 0, 0); // Turn off LED
 
-
     if (initSD()) {
-      // Serial.println(F("Ready to use SD card"));
+        // Serial.println(F("Ready to use SD card"));
         delay(200);
         cli();
         if (!isSDCardFull()) {
-          // Serial.println("I");
+            // Serial.println("I");
             String name = String(now.year) + String(now.month) + String(now.date) + ".LOG";
             if (getFileSize(name.c_str()) == 0xFFFFFFFF) {
                 createFile(name.c_str());
@@ -1341,10 +1326,8 @@ void Save_to_SD() {
         // When done with all operations
         closeSD();
 
-
-
     } else {
-      // Serial.println(F("SD card initialization failed"));
+        // Serial.println(F("SD card initialization failed"));
         err_code = 6;
         toggleLED();
     }
@@ -1355,33 +1338,30 @@ void Save_to_SD() {
 
 
 void startTimer1(void) {
-  // Configure Timer1
-  timerCount = 0;
+    // Configure Timer1
+    timerCount = 0;
 
-  cli();                      // Disable interrupts
-  TCCR1A = 0;                // Set entire TCCR1A register to 0
-  TCCR1B = 0;                // Same for TCCR1B
-  
-  // Set compare match register for 1 second interval
-  OCR1A = 15624;             // = 16MHz/1024/1Hz - 1
-  
-  // Turn on CTC mode
-  TCCR1B |= (1 << WGM12);
-  
-  // Set CS12 and CS10 bits for 1024 prescaler
-  TCCR1B |= (1 << CS12) | (1 << CS10);
-  
-  // Enable timer compare interrupt
-  TIMSK1 |= (1 << OCIE1A);
-  
-  TCNT1 = 0;                 // Initialize counter value to 0
-  sei();                     // Enable interrupts
-  
-  // Serial.println("Timer1 started");
+    cli();                      // Disable interrupts
+    TCCR1A = 0;                // Set entire TCCR1A register to 0
+    TCCR1B = 0;                // Same for TCCR1B
+    
+    // Set compare match register for 1 second interval
+    OCR1A = 15624;             // = 16MHz/1024/1Hz - 1
+    
+    // Turn on CTC mode
+    TCCR1B |= (1 << WGM12);
+    
+    // Set CS12 and CS10 bits for 1024 prescaler
+    TCCR1B |= (1 << CS12) | (1 << CS10);
+    
+    // Enable timer compare interrupt
+    TIMSK1 |= (1 << OCIE1A);
+    
+    TCNT1 = 0;                 // Initialize counter value to 0
+    sei();                     // Enable interrupts
+    
+    // Serial.println("Timer1 started");
 }
-
-
-
 
 
 // RTC //
@@ -1705,31 +1685,31 @@ bool getGPSdata() {
 
 // Timer1 interrupt service routine (ISR)
 ISR(TIMER1_COMPA_vect) {
-  timerCount++;
+    timerCount++;
   
 // Serial.print("Waited: ");
 // Serial.print(timerCount);
 // Serial.println(" seconds.");
   
-  if (timerCount >= int(manager.get("TIMEOUT"))) {          // After 5 seconds
-    timerCount = 0;               // Reset counter
-    if (err_code > 0) {
-          // Serial.println("PRE ERROR ISR");
+    if (timerCount >= int(manager.get("TIMEOUT"))) {          // After 5 seconds
+        timerCount = 0;               // Reset counter
+        if (err_code > 0) {
+            // Serial.println("PRE ERROR ISR");
             toggleLED();
         }
         else {
-          // Serial.println("SETTING ERROR");
+            // Serial.println("SETTING ERROR");
             switch (crt_ssr) {
                 case 0: // Timeout on GPS
                     latitude = NULL;
                     longitude = NULL;
                     if (gps_error == 1) {
-                      // Serial.println("GPS ERRORED AGAIN...skipping for demo");
+                        // Serial.println("GPS ERRORED AGAIN...skipping for demo");
                         got_stopped = 1;
                         err_code = 2;
                         toggleLED();
                     } else {
-                      // Serial.println("GPS");
+                        // Serial.println("GPS");
                         gps_error = 1;
                         got_stopped = 1;
                     }
@@ -1789,7 +1769,7 @@ ISR(TIMER1_COMPA_vect) {
             }
             toggleLED();
         }
-  }
+    }
 }
 
 
@@ -1862,7 +1842,7 @@ ISR(TIMER1_COMPA_vect) {
         }
         toggleLED();
         timer1Count = 0;
-}
+    }
 }
 */
 
@@ -1871,7 +1851,6 @@ ISR(TIMER1_COMPA_vect) {
 // MEASURES //
 void Measures(bool gps_eco) {
     // Serial.println("IN measures");
-
     
     crt_ssr = 0;   // To follow current sensor
 
@@ -1879,7 +1858,7 @@ void Measures(bool gps_eco) {
 
     // GPS //
     if (gps_eco) {
-      // Serial.println("READING GPS");
+        // Serial.println("READING GPS");
         // Serial.println("starting timer");
         delay(2000);
         startTimer1();
@@ -1901,7 +1880,7 @@ void Measures(bool gps_eco) {
     // Serial.println(longitude);
     // Serial.println("SENSOR IS NOW 2");
     got_stopped = 0;
-  // Serial.println("READING RTC");
+    // Serial.println("READING RTC");
     crt_ssr = 1;
 
     // RTC //
@@ -1910,19 +1889,19 @@ void Measures(bool gps_eco) {
     // Serial.println("Initializing I2C");
     initI2C();
     DateTime tmp = readDateTime();
-  // Serial.print(week_days[int(tmp.day) - 1]);
-  // Serial.print(" ");
-  // Serial.print(tmp.date);
-  // Serial.print("/");
-  // Serial.print(tmp.month);
-  // Serial.print("/");
-  // Serial.print(tmp.year);
-  // Serial.print(" ");
-  // Serial.print(tmp.hour);
-  // Serial.print(":");
-  // Serial.print(tmp.minute);
-  // Serial.print(":");
-  // Serial.println(tmp.second);
+    // Serial.print(week_days[int(tmp.day) - 1]);
+    // Serial.print(" ");
+    // Serial.print(tmp.date);
+    // Serial.print("/");
+    // Serial.print(tmp.month);
+    // Serial.print("/");
+    // Serial.print(tmp.year);
+    // Serial.print(" ");
+    // Serial.print(tmp.hour);
+    // Serial.print(":");
+    // Serial.print(tmp.minute);
+    // Serial.print(":");
+    // Serial.println(tmp.second);
     if (tmp.second > 60 || tmp.second < 0 || tmp.minute > 60 || tmp.minute < 0 || tmp.hour > 24 || tmp.hour < 0 || tmp.day == NULL || tmp.day > 7 || tmp.day < 1 || tmp.date == NULL || tmp.date > 31 || tmp.date < 1 || tmp.month == NULL || tmp.month > 12 || tmp.month < 1 || tmp.year > 99 || tmp.year < 0) {
         err_code = 4;
         toggleLED();
@@ -1953,7 +1932,7 @@ void Measures(bool gps_eco) {
 
 
     // Serial.println("CURRENT SENSOR IS 3");
-  // Serial.println("READING LUMINOSITY");
+    // Serial.println("READING LUMINOSITY");
     got_stopped = 0;
     crt_ssr = 2;
 
@@ -1987,7 +1966,7 @@ void Measures(bool gps_eco) {
 
     // Serial.println(ssr_lum.Average());
     // Serial.println("CURRENT SENSOR IS 4");
-  // Serial.println("READING TEMPERATURE");
+    // Serial.println("READING TEMPERATURE");
     got_stopped = 0;
     crt_ssr = 3;
 
@@ -2030,7 +2009,7 @@ void Measures(bool gps_eco) {
 
     // Serial.println(ssr_tmp.Average());
     // Serial.println("CURRENT SENSOR IS 5");
-  // Serial.println("READING HUMIDITY");
+    // Serial.println("READING HUMIDITY");
     got_stopped = 0;
     crt_ssr = 4;
 
@@ -2069,11 +2048,11 @@ void Measures(bool gps_eco) {
         stopTimer1();
     } else {
         ssr_tmp.error = true ;
-        }
+    }
 
     // Serial.println(ssr_hum.Average());
     // Serial.println("CURRENT SENSOR IS 6");
-  // Serial.println("READING PRESSURE");
+    // Serial.println("READING PRESSURE");
     got_stopped = 0;
     crt_ssr = 5;
 
@@ -2162,7 +2141,6 @@ void Send_Serial() {
     } else {
         Serial.println("MEDIUM");
     }
-
     Serial.print("Humidity: ");
     if (ssr_hum.error == 1) {
         Serial.println("NaN");
@@ -2180,12 +2158,12 @@ void Send_Serial() {
 
 void checkLoggingInterval() {
     unsigned long currentTime = millis();
-  // Serial.println("Checking logging interval");
-  // Serial.println(currentTime - lastLogTime >= int(manager.get("LOG_INTERVAL")) * 60000);
-  // Serial.println((currentTime - lastLogTime)/60000);
-  // Serial.println(int(manager.get("LOG_INTERVAL")));
+    // Serial.println("Checking logging interval");
+    // Serial.println(currentTime - lastLogTime >= int(manager.get("LOG_INTERVAL")) * 60000);
+    // Serial.println((currentTime - lastLogTime)/60000);
+    // Serial.println(int(manager.get("LOG_INTERVAL")));
     if (currentTime - lastLogTime >= int(manager.get("LOG_INTERVAL")) * 60000) {
-      // Serial.println(F("Called Save to sd"));
+        // Serial.println(F("Called Save to sd"));
         delay(500);
         Save_to_SD();
         Send_Serial();
@@ -2197,7 +2175,7 @@ void checkLoggingInterval() {
 // MODES //
 
 void Standard() {
-  // Serial.println("Standard");
+    // Serial.println("Standard");
     stopTimer1();
     setColorRGB(0, 255, 0);
     if (manager.get("ECO") == 1) {
@@ -2210,17 +2188,17 @@ void Standard() {
     while (true) {
     Measures(true);
     stopTimer1();
-  // Serial.println("Measured Standard");
-  // Serial.print("Waiting for ");
-  // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
-  // Serial.println(" minutes");
+    // Serial.println("Measured Standard");
+    // Serial.print("Waiting for ");
+    // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    // Serial.println(" minutes");
     delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     }
 }
 
 void Economic() {
-  // Serial.println("Economic");
+    // Serial.println("Economic");
     stopTimer1();
     setColorRGB(0, 20, 255);
     if (manager.get("ECO") == 0) {
@@ -2233,24 +2211,25 @@ void Economic() {
 
     while (true) {
     Measures(false);
-  // Serial.println("Measured Economic");
-  // Serial.print("Waiting for ");
-  // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
-  // Serial.println(" minutes");
+    // Serial.println("Measured Economic");
+    // Serial.print("Waiting for ");
+    // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    // Serial.println(" minutes");
     delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     Measures(true);
-  // Serial.println("Measured Standard (eco)");
-  // Serial.print("Waiting for ");
-  // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
-  // Serial.println(" minutes");
+    // Serial.println("Measured Standard (eco)");
+    // Serial.print("Waiting for ");
+    // Serial.print(int(manager.get("LOG_INTERVAL"))/3);
+    // Serial.println(" minutes");
     delay((unsigned long)(manager.get("LOG_INTERVAL")) * 20000);
     checkLoggingInterval();
     }
 }
 
 void Maintenance() {
-  // Serial.println("Maintenance");
+    // Serial.println("Maintenance");
+    Serial.begin(9600);
     stopTimer1();
     setColorRGB(255, 30, 0);
     mode = 3;
@@ -2287,74 +2266,75 @@ void Configuration() {
 
 
 void ToggleMode(uint8_t button) {
-    //Serial.println("Toggling mode");
-    //Serial.print("Button: ");
-    //Serial.println(button);
-    //Serial.print("Mode: ");
-    //Serial.println(mode);
-   if (button == 1) {
-switch (mode) {
-
-    case 1:
-        Maintenance();
-        break;
-    case 2:
-        Maintenance();
-        break;
-    case 3:
-        if (manager.get("ECO") == 1) {
-            Economic();
-        } else {
-            Standard();
+    // Serial.println("Toggling mode");
+    // Serial.print("Button: ");
+    // Serial.println(button);
+    // Serial.print("Mode: ");
+    // Serial.println(mode);
+    if (button == 1) {
+        switch (mode) {
+            case 1:
+                Maintenance();
+                break;
+            case 2:
+                Maintenance();
+                break;
+            case 3:
+                Serial.end();
+                if (manager.get("ECO") == 1) {
+                    Economic();
+                } else {
+                    Standard();
+                }
+                break;
+            default:
+                break;
         }
-        break;
-    default:
-        break;
-}
-   } else if (button == 0) {
-switch (mode) {
-    case 1:
-        Economic();
-        break;
-    case 2:
-        Standard();
-        break;
-    default:
-        break;
-}
-   }
+    } else if (button == 0) {
+        switch (mode) {
+            Serial.end();
+            case 1:
+                Economic();
+                break;
+            case 2:
+                Standard();
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 // INTERRUPT //
 void red_btn_change() {
-  if (digitalRead(red_btn_pin) == LOW) { // Bouton pressé
-    red_btn_stt = millis();
-    red_btn_pressed = true;
-  // Serial.println("Red button pressed");
-  } else if ((millis() - red_btn_stt) > switch_duration &&  red_btn_pressed) {
-    red_btn_pressed = false;
-  // Serial.println("Toggle mode red");
-    ToggleMode(1);
-  } else {
-    red_btn_pressed = false;
-  // Serial.println("Red button released");
-}
+    if (digitalRead(red_btn_pin) == LOW) { // Bouton pressé
+        red_btn_stt = millis();
+        red_btn_pressed = true;
+    // Serial.println("Red button pressed");
+    } else if ((millis() - red_btn_stt) > switch_duration &&  red_btn_pressed) {
+        red_btn_pressed = false;
+    // Serial.println("Toggle mode red");
+        ToggleMode(1);
+    } else {
+        red_btn_pressed = false;
+    // Serial.println("Red button released");
+    }
 }
 
 // Gestionnaire d'interruption pour le bouton 3
 void grn_btn_change() {
-  if (digitalRead(grn_btn_pin) == LOW) { // Bouton pressé
-    grn_btn_stt = millis();
-    grn_btn_pressed = true;
-  // Serial.println("Green button pressed");
-  } else if ((millis() - grn_btn_stt) > switch_duration &&  grn_btn_pressed) {
-    grn_btn_pressed = false;
-  // Serial.println("Toggle mode green");
-    ToggleMode(0);
-  } else {
-    grn_btn_pressed = false;
-  // Serial.println("Green button released");
-}
+    if (digitalRead(grn_btn_pin) == LOW) { // Bouton pressé
+        grn_btn_stt = millis();
+        grn_btn_pressed = true;
+    // Serial.println("Green button pressed");
+    } else if ((millis() - grn_btn_stt) > switch_duration &&  grn_btn_pressed) {
+        grn_btn_pressed = false;
+    // Serial.println("Toggle mode green");
+        ToggleMode(0);
+    } else {
+        grn_btn_pressed = false;
+    // Serial.println("Green button released");
+    }
 }
 
 
@@ -2364,21 +2344,21 @@ void grn_btn_change() {
 
 void setup() {
     bme.begin();
-  // Serial.begin(9600);
-  // Serial.println("Arduino UP!");
-    if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
-        mode = 0;
-      // Serial.println("CONFIG");
-        Configuration(); // Mode configuration
-    }
-    //Serial.println("Starting pinmode config");
+    // Serial.begin(9600);
+    // Serial.println("Arduino UP!");
+    // Serial.println("Starting pinmode config");
     pinMode(A0, INPUT);
     pinMode(red_btn_pin, INPUT_PULLUP);
     pinMode(grn_btn_pin, INPUT_PULLUP);
-    //Serial.println("Starting LED");
+    // Serial.println("Starting LED");
     Init_LED(7, 8);
     attachInterrupt(digitalPinToInterrupt(red_btn_pin), red_btn_change, CHANGE);
     attachInterrupt(digitalPinToInterrupt(grn_btn_pin), grn_btn_change, CHANGE);
+    if (digitalRead(red_btn_pin) == LOW) { // Si le bouton rouge est appuyé
+        mode = 0;
+        // Serial.println("CONFIG");
+        Configuration(); // Mode configuration
+    }
     if (manager.get("ECO") == 1) {
         Economic();
     } else {
