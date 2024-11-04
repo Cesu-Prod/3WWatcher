@@ -2273,7 +2273,7 @@ void Configuration() {
     toggleLED();
     manager.version();
     while (millis() - last_command < 1800000) { // 30 * 60 * 1000 = 30 minutes
-      SerialConfig();
+      serialConfig();
     }
     Serial.end();
     if (manager.get("ECO") == 1) {
